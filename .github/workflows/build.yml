@@ -16,13 +16,16 @@ jobs:
         with:
           go-version: "1.24"
 
-      - name: Install MinGW-w64 (cgo dependency)
-        run: choco install mingw-w64 -y --no-progress
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: mingw-w64-ucrt-x86_64-gcc
 
       - name: Build
         shell: pwsh
         run: |
-          $env:Path += ";C:\ProgramData\chocolatey\lib\mingw-w64\tools\mingw64\bin"
+          $env:Path = "C:\msys64\ucrt64\bin;$env:Path"
           gcc --version
           go mod tidy
           $env:CGO_ENABLED = "1"
