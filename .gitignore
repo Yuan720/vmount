@@ -1,0 +1,4 @@
+vmount.exe
+*.exe
+cache/
+vmount.json
