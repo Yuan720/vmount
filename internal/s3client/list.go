@@ -14,18 +14,12 @@ import (
 )
 
 func (c *Client) Stat(ctx context.Context, path string) (*Meta, error) {
-	ctx, cancel := c.ctx(ctx)
-	defer cancel()
-
 	k := c.key(path)
 	info, err := c.cli.StatObject(ctx, c.bucket, k, minio.StatObjectOptions{})
 	if err == nil {
 		return &Meta{Size: info.Size, ModTime: info.LastModified}, nil
 	}
-	var resp minio.ErrorResponse
-	if errors.As(err, &resp) && resp.Code == "NoSuchKey" {
-		return nil, ErrNotFound
-	}
+	fmt.Fprintf(os.Stderr, "DBG Stat %q: StatObject err=%v\n", k, err)
 
 	entries, err := c.List(ctx, path)
 	if err != nil {
@@ -45,6 +39,7 @@ func (c *Client) Stat(ctx context.Context, path string) (*Meta, error) {
 	if err == nil {
 		return &Meta{Size: 0, ModTime: placeholder.LastModified, IsDir: true}, nil
 	}
+	fmt.Fprintf(os.Stderr, "DBG Stat %q: placeholder err=%v\n", c.dirPrefix(path), err)
 	return nil, ErrNotFound
 }
 
