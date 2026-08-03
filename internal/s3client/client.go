@@ -35,6 +35,9 @@ type Client struct {
 }
 
 func New(endpoint, bucket, prefix, accessKey, secretKey string, useTLS bool, timeout time.Duration) (*Client, error) {
+	endpoint = strings.TrimPrefix(endpoint, "http://")
+	endpoint = strings.TrimPrefix(endpoint, "https://")
+	endpoint = strings.TrimSuffix(endpoint, "/")
 	cli, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
 		Secure: useTLS,
