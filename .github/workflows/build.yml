@@ -22,21 +22,28 @@ jobs:
           update: false
           install: mingw-w64-ucrt-x86_64-gcc
 
-      - name: Install WinFsp (FUSE headers + runtime)
+      - name: Install WinFsp (runtime for local test)
         shell: pwsh
         run: |
           $rel = Invoke-RestMethod "https://api.github.com/repos/winfsp/winfsp/releases/latest"
           $msi = $rel.assets | Where-Object { $_.name -like "*.msi" } | Select-Object -First 1
           Invoke-WebRequest $msi.browser_download_url -OutFile winfsp.msi
-          Start-Process msiexec -ArgumentList "/i winfsp.msi /qn /norestart" -Wait
-          Test-Path "C:\Program Files (x86)\WinFsp\inc\fuse\fuse_common.h"
+          $p = Start-Process msiexec -ArgumentList "/i winfsp.msi /qn /norestart" -Wait -PassThru
+          Write-Host "msiexec exit: $($p.ExitCode)"
+
+      - name: Fetch WinFsp FUSE headers (compile only)
+        shell: pwsh
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/winfsp/winfsp C:\winfsp-src
+          Set-Location C:\winfsp-src
+          git sparse-checkout set inc/fuse
+          Test-Path C:\winfsp-src\inc\fuse\fuse_common.h
 
       - name: Build
         shell: pwsh
         run: |
           $env:Path = "C:\msys64\ucrt64\bin;$env:Path"
-          Copy-Item "C:\Program Files (x86)\WinFsp\inc\fuse" "C:\winfsp-inc" -Recurse -Force
-          $env:CGO_CFLAGS = "-IC:\winfsp-inc"
+          $env:CGO_CFLAGS = "-IC:\winfsp-src\inc\fuse"
           gcc --version
           go mod tidy
           $env:CGO_ENABLED = "1"
