@@ -47,9 +47,6 @@ func (c *Client) Stat(ctx context.Context, path string) (*Meta, error) {
 }
 
 func (c *Client) GetRange(ctx context.Context, path string, off, size int64) (io.ReadCloser, int64, error) {
-	ctx, cancel := c.ctx(ctx)
-	defer cancel()
-
 	var obj *minio.Object
 	var err error
 	err = retry(func() error {
@@ -65,9 +62,6 @@ func (c *Client) GetRange(ctx context.Context, path string, off, size int64) (io
 }
 
 func (c *Client) GetFull(ctx context.Context, path string) (io.ReadCloser, int64, error) {
-	ctx, cancel := c.ctx(ctx)
-	defer cancel()
-
 	var obj *minio.Object
 	var err error
 	err = retry(func() error {
