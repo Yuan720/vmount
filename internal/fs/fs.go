@@ -209,7 +209,20 @@ func (f *Fs) Releasedir(path string, fh uint64) int {
 func (f *Fs) Open(path string, flags int) (int, uint64) {
 	path = f.norm(path)
 	write := flags&fuse.O_ACCMODE != fuse.O_RDONLY
+	if write && flags&fuse.O_CREAT == 0 {
+		meta, err := f.currentMeta(path)
+		if err != nil {
+			if err == s3client.ErrNotFound {
+				return -fuse.ENOENT, ^uint64(0)
+			}
+			return -fuse.EIO, ^uint64(0)
+		}
+		if meta.IsDir {
+			return -fuse.EISDIR, ^uint64(0)
+		}
+	}
 	fh := f.handles.Add(&handle{path: path, write: write})
+	fmt.Fprintf(os.Stderr, "DBG Open path=%q flags=%d write=%v\n", path, flags, write)
 	return 0, fh
 }
 
@@ -217,6 +230,7 @@ func (f *Fs) Create(path string, flags int, mode uint32) (int, uint64) {
 	path = f.norm(path)
 	fh := f.handles.Add(&handle{path: path, write: true})
 	f.invalidatePath(path)
+	fmt.Fprintf(os.Stderr, "DBG Create path=%q flags=%d\n", path, flags)
 	return 0, fh
 }
 
