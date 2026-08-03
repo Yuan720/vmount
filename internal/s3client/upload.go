@@ -22,8 +22,6 @@ func (c *Client) Put(ctx context.Context, path string, r io.Reader, size int64, 
 }
 
 func (c *Client) PutPlaceholder(ctx context.Context, path string) error {
-	ctx, cancel := c.ctx(ctx)
-	defer cancel()
 	return retry(func() error {
 		_, err := c.cli.PutObject(ctx, c.bucket, c.dirPrefix(path), strings.NewReader(""), 0, minio.PutObjectOptions{})
 		return err

@@ -395,7 +395,9 @@ func (f *Fs) Unlink(path string) int {
 
 func (f *Fs) Mkdir(path string, mode uint32) int {
 	path = f.norm(path)
+	fmt.Fprintf(os.Stderr, "DBG Mkdir path=%q mode=%o\n", path, mode)
 	if err := f.client.PutPlaceholder(context.Background(), path); err != nil {
+		fmt.Fprintf(os.Stderr, "DBG Mkdir put err path=%q err=%v\n", path, err)
 		return -fuse.EIO
 	}
 	f.dirs.Invalidate(f.parentDir(path))
