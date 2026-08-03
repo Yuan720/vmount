@@ -11,7 +11,7 @@
 
 ## 先决条件
 - Go 工具链（用于构建）
-- Windows: 安装 WinFsp（用于用户态文件系统支持）并以管理员权限运行可挂载驱动器
+- Windows: 安装 WinFsp（用于用户态文件系统支持）。挂载盘符通常需要管理员权限；若挂载失败，请以管理员身份运行
 - 可访问的 S3 兼容存储（Endpoint、Bucket、AccessKey、SecretKey）
 
 ## 快速开始（从源码）
@@ -37,7 +37,7 @@
    cp config.example.json vmount.json
    # 编辑 vmount.json，填入 Endpoint/Bucket/AccessKey/SecretKey 等字段
    ```
-4. 以管理员身份运行（Windows）并指定配置文件（默认配置文件名为 vmount.json）：
+4. 运行（Windows）并指定配置文件（默认配置文件名为 vmount.json）。若挂载盘符失败，请以管理员身份运行：
    ```bash
    ./vmount -config vmount.json
    ```
@@ -101,7 +101,8 @@
 
 ## 常见问题与排查
 - 挂载失败：
-  - 确认 WinFsp 已正确安装并重启系统后再次尝试。
+  - 确认 WinFsp 已正确安装，可用 `fsptool lsdrv` 检查驱动是否加载，必要时重启系统。
+  - 若提示 mount point in use，检查该盘符/目录是否已被占用。
   - 以管理员权限运行可执行文件（Windows）。
   - 检查 vmount.json 中 Endpoint / Bucket / AccessKey / SecretKey 是否正确。
 - 性能问题：
