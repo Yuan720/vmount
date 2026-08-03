@@ -257,8 +257,10 @@ func (f *Fs) Read(path string, buff []byte, off int64, fh uint64) int {
 		if err == s3client.ErrNotFound {
 			return 0
 		}
+		fmt.Fprintf(os.Stderr, "DBG Read meta err path=%q err=%v\n", path, err)
 		return -fuse.EIO
 	}
+	fmt.Fprintf(os.Stderr, "DBG Read meta path=%q size=%d\n", path, meta.Size)
 	if off >= meta.Size {
 		return 0
 	}
@@ -277,11 +279,13 @@ func (f *Fs) Read(path string, buff []byte, off int64, fh uint64) int {
 			}
 			rc, _, gerr := f.client.GetRange(context.Background(), path, blkStart, size)
 			if gerr != nil {
+				fmt.Fprintf(os.Stderr, "DBG Read GetRange err path=%q off=%d size=%d err=%v\n", path, blkStart, size, gerr)
 				return -fuse.EIO
 			}
 			data, gerr = io.ReadAll(io.LimitReader(rc, size))
 			rc.Close()
 			if gerr != nil {
+				fmt.Fprintf(os.Stderr, "DBG Read readall err path=%q err=%v\n", path, gerr)
 				return -fuse.EIO
 			}
 			f.blocks.Put(blkKey, meta.ModTime, data)
