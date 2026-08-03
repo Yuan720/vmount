@@ -53,6 +53,9 @@ func (c *Client) GetRange(ctx context.Context, path string, off, size int64) (io
 		opts := minio.GetObjectOptions{}
 		opts.SetRange(off, off+size-1)
 		obj, err = c.cli.GetObject(ctx, c.bucket, c.key(path), opts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "DBG GetRange key=%q off=%d size=%d err=%v\n", c.key(path), off, size, err)
+		}
 		return err
 	}, 3)
 	if err != nil {
