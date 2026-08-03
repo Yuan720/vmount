@@ -7,7 +7,7 @@ import (
 type handle struct {
 	path    string
 	write   bool
-	spool   bool
+	spooled bool
 }
 
 type handleTable struct {
