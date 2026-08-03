@@ -73,7 +73,11 @@ func (f *Fs) fillStat(stat *fuse.Stat_t, meta *s3client.Meta) {
 	stat.Blksize = 4096
 	stat.Blocks = (meta.Size + 4095) / 4096
 	t := meta.ModTime
-	stat.Mtim = fuse.Timespec{Sec: t.Unix(), Nsec: int64(t.Nanosecond())}
+	ts := fuse.Timespec{Sec: t.Unix(), Nsec: int64(t.Nanosecond())}
+	stat.Atim = ts
+	stat.Mtim = ts
+	stat.Ctim = ts
+	stat.Birthtim = ts
 }
 
 func (f *Fs) invalidatePath(path string) {
@@ -244,6 +248,7 @@ func (f *Fs) Create(path string, flags int, mode uint32) (int, uint64) {
 
 func (f *Fs) Read(path string, buff []byte, off int64, fh uint64) int {
 	path = f.norm(path)
+	fmt.Fprintf(os.Stderr, "DBG Read path=%q off=%d len=%d fh=%d\n", path, off, len(buff), fh)
 	if h := f.handles.Get(fh); h != nil {
 		path = h.path
 	}
