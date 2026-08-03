@@ -28,6 +28,9 @@ jobs:
           $env:Path = "C:\msys64\ucrt64\bin;$env:Path"
           gcc --version
           go mod tidy
+          Write-Host "=== go.sum exists: $(Test-Path go.sum) ==="
+          if (Test-Path go.sum) { Get-Content go.sum }
+          go env GOWORK GOFLAGS GONOSUMDB GOPROXY
           $env:CGO_ENABLED = "1"
           go build -trimpath -ldflags "-s -w" -o vmount.exe ./cmd/vmount
 
