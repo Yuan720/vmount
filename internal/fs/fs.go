@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -153,7 +152,6 @@ func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
 	if h := f.handles.Get(fh); h != nil {
 		path = h.path
 	}
-	fmt.Fprintf(os.Stderr, "DBG Getattr path=%q fh=%d\n", path, fh)
 	if path == "" {
 		f.fillStat(stat, &s3client.Meta{IsDir: true})
 		return 0
@@ -161,10 +159,8 @@ func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
 	meta, err := f.currentMeta(path)
 	if err != nil {
 		if err == s3client.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "DBG Getattr ENOENT path=%q\n", path)
 			return -fuse.ENOENT
 		}
-		fmt.Fprintf(os.Stderr, "DBG Getattr EIO path=%q err=%v\n", path, err)
 		return -fuse.EIO
 	}
 	f.fillStat(stat, meta)
@@ -173,13 +169,11 @@ func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
 
 func (f *Fs) Readdir(path string, fill func(name string, stat *fuse.Stat_t, off int64) bool, off int64, fh uint64) int {
 	path = f.norm(path)
-	fmt.Fprintf(os.Stderr, "DBG Readdir path=%q fh=%d\n", path, fh)
 	entries, ok := f.dirs.Get(path)
 	if !ok {
 		var err error
 		entries, err = f.client.List(context.Background(), path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "DBG Readdir EIO path=%q err=%v\n", path, err)
 			return -fuse.EIO
 		}
 		f.dirs.Set(path, entries)
@@ -195,12 +189,10 @@ func (f *Fs) Readdir(path string, fill func(name string, stat *fuse.Stat_t, off 
 			break
 		}
 	}
-	fmt.Fprintf(os.Stderr, "DBG Readdir done path=%q entries=%d\n", path, len(names))
 	return 0
 }
 
 func (f *Fs) Opendir(path string) (int, uint64) {
-	fmt.Fprintf(os.Stderr, "DBG Opendir path=%q\n", path)
 	fh := f.handles.Add(&handle{path: f.norm(path)})
 	return 0, fh
 }
@@ -226,7 +218,6 @@ func (f *Fs) Open(path string, flags int) (int, uint64) {
 		}
 	}
 	fh := f.handles.Add(&handle{path: path, write: write})
-	fmt.Fprintf(os.Stderr, "DBG Open path=%q flags=%d write=%v\n", path, flags, write)
 	return 0, fh
 }
 
@@ -242,13 +233,11 @@ func (f *Fs) Create(path string, flags int, mode uint32) (int, uint64) {
 	f.metas.Invalidate(path)
 	f.dirs.Invalidate(f.parentDir(path))
 	fh := f.handles.Add(&handle{path: path, write: true})
-	fmt.Fprintf(os.Stderr, "DBG Create path=%q flags=%d\n", path, flags)
 	return 0, fh
 }
 
 func (f *Fs) Read(path string, buff []byte, off int64, fh uint64) int {
 	path = f.norm(path)
-	fmt.Fprintf(os.Stderr, "DBG Read path=%q off=%d len=%d fh=%d\n", path, off, len(buff), fh)
 	if h := f.handles.Get(fh); h != nil {
 		path = h.path
 	}
@@ -257,10 +246,8 @@ func (f *Fs) Read(path string, buff []byte, off int64, fh uint64) int {
 		if err == s3client.ErrNotFound {
 			return 0
 		}
-		fmt.Fprintf(os.Stderr, "DBG Read meta err path=%q err=%v\n", path, err)
 		return -fuse.EIO
 	}
-	fmt.Fprintf(os.Stderr, "DBG Read meta path=%q size=%d\n", path, meta.Size)
 	if off >= meta.Size {
 		return 0
 	}
@@ -279,13 +266,11 @@ func (f *Fs) Read(path string, buff []byte, off int64, fh uint64) int {
 			}
 			rc, _, gerr := f.client.GetRange(context.Background(), path, blkStart, size)
 			if gerr != nil {
-				fmt.Fprintf(os.Stderr, "DBG Read GetRange err path=%q off=%d size=%d err=%v\n", path, blkStart, size, gerr)
 				return -fuse.EIO
 			}
 			data, gerr = io.ReadAll(io.LimitReader(rc, size))
 			rc.Close()
 			if gerr != nil {
-				fmt.Fprintf(os.Stderr, "DBG Read readall err path=%q err=%v\n", path, gerr)
 				return -fuse.EIO
 			}
 			f.blocks.Put(blkKey, meta.ModTime, data)
@@ -395,9 +380,7 @@ func (f *Fs) Unlink(path string) int {
 
 func (f *Fs) Mkdir(path string, mode uint32) int {
 	path = f.norm(path)
-	fmt.Fprintf(os.Stderr, "DBG Mkdir path=%q mode=%o\n", path, mode)
 	if err := f.client.PutPlaceholder(context.Background(), path); err != nil {
-		fmt.Fprintf(os.Stderr, "DBG Mkdir put err path=%q err=%v\n", path, err)
 		return -fuse.EIO
 	}
 	f.dirs.Invalidate(f.parentDir(path))

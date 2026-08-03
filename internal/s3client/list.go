@@ -2,9 +2,7 @@ package s3client
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -18,7 +16,6 @@ func (c *Client) Stat(ctx context.Context, path string) (*Meta, error) {
 	if err == nil {
 		return &Meta{Size: info.Size, ModTime: info.LastModified}, nil
 	}
-	fmt.Fprintf(os.Stderr, "DBG Stat %q: StatObject err=%v\n", k, err)
 
 	entries, err := c.List(ctx, path)
 	if err != nil {
@@ -38,7 +35,6 @@ func (c *Client) Stat(ctx context.Context, path string) (*Meta, error) {
 	if err == nil {
 		return &Meta{Size: 0, ModTime: placeholder.LastModified, IsDir: true}, nil
 	}
-	fmt.Fprintf(os.Stderr, "DBG Stat %q: placeholder err=%v\n", c.dirPrefix(path), err)
 	return nil, ErrNotFound
 }
 
@@ -49,9 +45,6 @@ func (c *Client) GetRange(ctx context.Context, path string, off, size int64) (io
 		opts := minio.GetObjectOptions{}
 		opts.SetRange(off, off+size-1)
 		obj, err = c.cli.GetObject(ctx, c.bucket, c.key(path), opts)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "DBG GetRange key=%q off=%d size=%d err=%v\n", c.key(path), off, size, err)
-		}
 		return err
 	}, 3)
 	if err != nil {

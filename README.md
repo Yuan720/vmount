@@ -21,9 +21,17 @@
    cd vmount
    ```
 2. 构建可执行文件
+   本项目依赖 cgo（WinFsp 的 FUSE 接口），需要 64 位 MinGW-w64 工具链和 WinFsp 的 FUSE 头文件：
    ```bash
-   go build -o vmount ./cmd/vmount
+   # Windows 下（PowerShell）：
+   #   1) 安装 WinFsp（https://winfsp.dev）
+   #   2) 安装 MinGW-w64（如 WinLibs）
+   #   3) 设置头文件路径后构建：
+   $env:CPATH = "C:\Program Files (x86)\WinFsp\inc\fuse"
+   $env:CGO_ENABLED = "1"
+   go build -o vmount.exe ./cmd/vmount
    ```
+   也可以直接使用 GitHub Actions（`.github/workflows/build.yml`），在 Actions 页面下载编译好的 `vmount.exe`。
 3. 复制并编辑配置
    ```bash
    cp config.example.json vmount.json
@@ -55,7 +63,7 @@
 - cache_dir: 本地缓存目录（默认 "cache")
 - read_cache_mb: 读缓存大小（MB，默认 512)
 - list_ttl_sec: 列表缓存有效期（秒，默认 30)
-- multipart_threshold: 使用分片上传的阈值（字节，默认 100 MB)
+- multipart_threshold: 分片上传阈值（字节，默认 100 MB；minio-go 客户端会自动按此阈值对超过大小的对象分片上传）
 - chunk_size: 分片大小（字节，默认 8 MB)
 - use_tls: 是否使用 TLS（布尔）
 
