@@ -228,8 +228,16 @@ func (f *Fs) Open(path string, flags int) (int, uint64) {
 
 func (f *Fs) Create(path string, flags int, mode uint32) (int, uint64) {
 	path = f.norm(path)
+	key := f.spoolKey(path)
+	if !f.spool.Exists(key) {
+		if _, err := f.spool.Open(key); err != nil {
+			return -fuse.EIO, ^uint64(0)
+		}
+		f.spool.Close(key)
+	}
+	f.metas.Set(path, s3client.Meta{Size: 0, ModTime: time.Now()})
+	f.dirs.Invalidate(f.parentDir(path))
 	fh := f.handles.Add(&handle{path: path, write: true})
-	f.invalidatePath(path)
 	fmt.Fprintf(os.Stderr, "DBG Create path=%q flags=%d\n", path, flags)
 	return 0, fh
 }
