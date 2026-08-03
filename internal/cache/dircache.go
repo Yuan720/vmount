@@ -59,25 +59,34 @@ func (d *DirCache) InvalidateAll() {
 
 type MetaCache struct {
 	mu   sync.Mutex
-	meta map[string]s3client.Meta
+	meta map[string]metaEntry
 	ttl  time.Duration
 }
 
+type metaEntry struct {
+	meta      s3client.Meta
+	fetchedAt time.Time
+}
+
 func NewMetaCache(ttl time.Duration) *MetaCache {
-	return &MetaCache{meta: map[string]s3client.Meta{}, ttl: ttl}
+	return &MetaCache{meta: map[string]metaEntry{}, ttl: ttl}
 }
 
 func (m *MetaCache) Get(path string) (s3client.Meta, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	meta, ok := m.meta[path]
-	return meta, ok
+	e, ok := m.meta[path]
+	if !ok || (m.ttl > 0 && time.Since(e.fetchedAt) > m.ttl) {
+		delete(m.meta, path)
+		return s3client.Meta{}, false
+	}
+	return e.meta, true
 }
 
 func (m *MetaCache) Set(path string, meta s3client.Meta) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.meta[path] = meta
+	m.meta[path] = metaEntry{meta: meta, fetchedAt: time.Now()}
 }
 
 func (m *MetaCache) Invalidate(path string) {

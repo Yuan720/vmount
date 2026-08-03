@@ -87,10 +87,10 @@ func (f *Fs) spoolKey(path string) string {
 }
 
 func (f *Fs) currentMeta(path string) (*s3client.Meta, error) {
+	if size, ok := f.spool.SizeOf(f.spoolKey(path)); ok {
+		return &s3client.Meta{Size: size, ModTime: time.Now()}, nil
+	}
 	if meta, ok := f.metas.Get(path); ok {
-		if size, ok := f.spool.SizeOf(f.spoolKey(path)); ok && size > 0 {
-			meta.Size = size
-		}
 		return &meta, nil
 	}
 	meta, err := f.client.Stat(context.Background(), path)
@@ -235,7 +235,7 @@ func (f *Fs) Create(path string, flags int, mode uint32) (int, uint64) {
 		}
 		f.spool.Close(key)
 	}
-	f.metas.Set(path, s3client.Meta{Size: 0, ModTime: time.Now()})
+	f.metas.Invalidate(path)
 	f.dirs.Invalidate(f.parentDir(path))
 	fh := f.handles.Add(&handle{path: path, write: true})
 	fmt.Fprintf(os.Stderr, "DBG Create path=%q flags=%d\n", path, flags)
