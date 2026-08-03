@@ -1,4 +1,4 @@
 vmount.exe
 *.exe
-cache/
+/cache/
 vmount.json
