@@ -188,6 +188,16 @@ func (f *Fs) Readdir(path string, fill func(name string, stat *fuse.Stat_t, off 
 	return 0
 }
 
+func (f *Fs) Opendir(path string) (int, uint64) {
+	fh := f.handles.Add(&handle{path: f.norm(path)})
+	return 0, fh
+}
+
+func (f *Fs) Releasedir(path string, fh uint64) int {
+	f.handles.Remove(fh)
+	return 0
+}
+
 func (f *Fs) Open(path string, flags int) (int, uint64) {
 	path = f.norm(path)
 	write := flags&fuse.O_ACCMODE != fuse.O_RDONLY
