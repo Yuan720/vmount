@@ -191,7 +191,7 @@ func (f *Fs) Open(path string, flags int) (int, uint64) {
 	return 0, fh
 }
 
-func (f *Fs) Create(path string, mode uint32) (int, uint64) {
+func (f *Fs) Create(path string, flags int, mode uint32) (int, uint64) {
 	path = f.norm(path)
 	fh := f.handles.Add(&handle{path: path, write: true})
 	f.invalidatePath(path)

@@ -31,7 +31,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	fsys, err := fs.New(client, cfg)
+	fsys, err := fs.New(client, &cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "fs init:", err)
 		os.Exit(1)
