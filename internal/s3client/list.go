@@ -3,7 +3,9 @@ package s3client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"time"
