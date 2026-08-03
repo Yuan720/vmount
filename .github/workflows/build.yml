@@ -35,7 +35,8 @@ jobs:
         shell: pwsh
         run: |
           $env:Path = "C:\msys64\ucrt64\bin;$env:Path"
-          $env:CGO_CFLAGS = '-I"C:\Program Files (x86)\WinFsp\inc\fuse"'
+          Copy-Item "C:\Program Files (x86)\WinFsp\inc\fuse" "C:\winfsp-inc" -Recurse -Force
+          $env:CGO_CFLAGS = "-IC:\winfsp-inc"
           gcc --version
           go mod tidy
           $env:CGO_ENABLED = "1"

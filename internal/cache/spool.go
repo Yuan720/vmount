@@ -127,7 +127,7 @@ func (s *Spool) SizeOf(key string) (int64, bool) {
 
 func (s *Spool) Remove(key string) error {
 	s.mu.Lock()
-	if e, ok := s.open[key]; ok {
+	if _, ok := s.open[key]; ok {
 		s.mu.Unlock()
 		return fmt.Errorf("spool %s still open", key)
 	}
