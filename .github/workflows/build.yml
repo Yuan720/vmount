@@ -24,6 +24,7 @@ jobs:
         run: |
           $env:Path += ";C:\ProgramData\chocolatey\lib\mingw-w64\tools\mingw64\bin"
           gcc --version
+          go mod tidy
           $env:CGO_ENABLED = "1"
           go build -trimpath -ldflags "-s -w" -o vmount.exe ./cmd/vmount
 
