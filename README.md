@@ -35,7 +35,7 @@
    ```
    或（在 Windows PowerShell 下）
    ```powershell
-   .\vmount.exe -config vmount.json
+   .\\vmount.exe -config vmount.json
    ```
    程序启动后会打印类似：
    ```
@@ -113,4 +113,4 @@
 欢迎提交 Issue 或 Pull Request。建议在 PR 中说明复现步骤与测试方式。
 
 ## 许可
-MIT
+This project is licensed under the MIT License — see the [LICENSE](./LICENSE) file for details.
