@@ -16,12 +16,14 @@ jobs:
         with:
           go-version: "1.24"
 
-      - name: Install MinGW (cgo dependency)
-        run: choco install mingw -y --no-progress
+      - name: Install MinGW-w64 (cgo dependency)
+        run: choco install mingw-w64 -y --no-progress
 
       - name: Build
         shell: pwsh
         run: |
+          $env:Path += ";C:\ProgramData\chocolatey\lib\mingw-w64\tools\mingw64\bin"
+          gcc --version
           $env:CGO_ENABLED = "1"
           go build -trimpath -ldflags "-s -w" -o vmount.exe ./cmd/vmount
 
