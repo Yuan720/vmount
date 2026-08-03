@@ -3,7 +3,6 @@ package s3client
 import (
 	"context"
 	"errors"
-	"io"
 	"strings"
 	"time"
 

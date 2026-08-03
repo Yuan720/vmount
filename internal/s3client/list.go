@@ -53,11 +53,9 @@ func (c *Client) GetRange(ctx context.Context, path string, off, size int64) (io
 	var obj *minio.Object
 	var err error
 	err = retry(func() error {
-		obj, err = c.cli.GetObject(ctx, c.bucket, c.key(path), minio.GetObjectOptions{
-			SetRange: true,
-			Start:    off,
-			End:      off + size - 1,
-		})
+		opts := minio.GetObjectOptions{}
+		opts.SetRange(off, off+size-1)
+		obj, err = c.cli.GetObject(ctx, c.bucket, c.key(path), opts)
 		return err
 	}, 3)
 	if err != nil {
@@ -148,10 +146,9 @@ func (c *Client) Copy(ctx context.Context, src, dst string) error {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
 	return retry(func() error {
-		_, err := c.cli.CopyObject(ctx, c.bucket, c.key(dst), minio.CopySrcOptions{
-			Bucket: c.bucket,
-			Object: c.key(src),
-		})
+		_, err := c.cli.CopyObject(ctx,
+			minio.CopyDestOptions{Bucket: c.bucket, Object: c.key(dst)},
+			minio.CopySrcOptions{Bucket: c.bucket, Object: c.key(src)})
 		return err
 	}, 3)
 }

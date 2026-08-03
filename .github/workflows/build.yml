@@ -22,15 +22,22 @@ jobs:
           update: false
           install: mingw-w64-ucrt-x86_64-gcc
 
+      - name: Install WinFsp (FUSE headers + runtime)
+        shell: pwsh
+        run: |
+          $rel = Invoke-RestMethod "https://api.github.com/repos/winfsp/winfsp/releases/latest"
+          $msi = $rel.assets | Where-Object { $_.name -like "*.msi" } | Select-Object -First 1
+          Invoke-WebRequest $msi.browser_download_url -OutFile winfsp.msi
+          Start-Process msiexec -ArgumentList "/i winfsp.msi /qn /norestart" -Wait
+          Test-Path "C:\Program Files (x86)\WinFsp\inc\fuse\fuse_common.h"
+
       - name: Build
         shell: pwsh
         run: |
           $env:Path = "C:\msys64\ucrt64\bin;$env:Path"
+          $env:CGO_CFLAGS = '-I"C:\Program Files (x86)\WinFsp\inc\fuse"'
           gcc --version
           go mod tidy
-          Write-Host "=== go.sum exists: $(Test-Path go.sum) ==="
-          if (Test-Path go.sum) { Get-Content go.sum }
-          go env GOWORK GOFLAGS GONOSUMDB GOPROXY
           $env:CGO_ENABLED = "1"
           go build -trimpath -ldflags "-s -w" -o vmount.exe ./cmd/vmount
 
