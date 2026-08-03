@@ -2,3 +2,8 @@ vmount.exe
 *.exe
 /cache/
 vmount.json
+*.log
+/vmnt/
+/mnt/
+/artifacts/
+
