@@ -148,6 +148,10 @@ func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
 	if h := f.handles.Get(fh); h != nil {
 		path = h.path
 	}
+	if path == "" {
+		f.fillStat(stat, &s3client.Meta{IsDir: true})
+		return 0
+	}
 	meta, err := f.currentMeta(path)
 	if err != nil {
 		if err == s3client.ErrNotFound {

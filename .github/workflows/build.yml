@@ -34,7 +34,7 @@ jobs:
       - name: Fetch WinFsp FUSE headers (compile only)
         shell: pwsh
         run: |
-          git clone --depth 1 --filter=blob:none --sparse https://github.com/winfsp/winfsp C:\winfsp-src
+          git clone --depth 1 --branch v2.1 --filter=blob:none --sparse https://github.com/winfsp/winfsp C:\winfsp-src
           Set-Location C:\winfsp-src
           git sparse-checkout set inc/fuse
           Test-Path C:\winfsp-src\inc\fuse\fuse_common.h

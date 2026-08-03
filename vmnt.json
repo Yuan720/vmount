@@ -1,0 +1,14 @@
+{
+  "endpoint": "http://172.22.75.221:9000",
+  "bucket": "mydrive",
+  "prefix": "",
+  "access_key": "minioadmin",
+  "secret_key": "minioadmin",
+  "mount": "C:\\vmnt",
+  "cache_dir": "cache",
+  "read_cache_mb": 512,
+  "list_ttl_sec": 30,
+  "multipart_threshold": 104857600,
+  "chunk_size": 8388608,
+  "use_tls": false
+}
