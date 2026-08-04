@@ -516,7 +516,7 @@ func (f *Fs) Mkdir(path string, mode uint32) int {
 		}
 	}
 	f.dirs.Invalidate(f.parentDir(path))
-	f.metas.Invalidate(path)
+	f.metas.Set(path, storage.Meta{IsDir: true, ModTime: time.Now()})
 	return 0
 }
 
