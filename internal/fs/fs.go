@@ -29,6 +29,12 @@ type Fs struct {
 	exclude   map[string]bool
 	usePH     bool
 	uploadWG  sync.WaitGroup
+	uploadMx  sync.Map
+}
+
+func (f *Fs) uploadMuFor(path string) *sync.Mutex {
+	mu, _ := f.uploadMx.LoadOrStore(path, &sync.Mutex{})
+	return mu.(*sync.Mutex)
 }
 
 func New(client storage.Backend, cfg *config.Config) (*Fs, error) {
@@ -134,49 +140,12 @@ func (f *Fs) currentMeta(path string) (*storage.Meta, error) {
 	return meta, nil
 }
 
-func (f *Fs) upload(h *handle) int {
-	debugf("upload begin %q spooled=%v deleted=%v", h.path, h.spooled, h.deleted)
-	key := f.spoolKey(h.path)
-	if !f.spool.Exists(key) {
-		return 0
-	}
-	if h.deleted {
-		f.spool.Remove(key)
-		h.spooled = false
-		return 0
-	}
-	if f.isExcluded(h.path) {
-		debugf("upload %q skipped (excluded suffix)", h.path)
-		h.spooled = false
-		return 0
-	}
-	entry, err := f.spool.Open(key)
-	if err != nil {
-		debugf("upload %q spool open err: %v", h.path, err)
-		return -fuse.EIO
-	}
-	rs, err := entry.SeekReader()
-	if err != nil {
-		f.spool.Close(key)
-		return -fuse.EIO
-	}
-	size := entry.Size()
-	err = f.client.Put(context.Background(), h.path, rs, size, f.chunkSize)
-	f.spool.Close(key)
-	if err != nil {
-		debugf("upload %q Put err: %v", h.path, err)
-		return -fuse.EIO
-	}
-	f.spool.Remove(key)
-	h.spooled = false
-	f.invalidatePath(h.path)
-	debugf("upload %q done size=%d", h.path, size)
-	return 0
-}
-
 func (f *Fs) asyncUpload(key, path string) {
 	f.uploadWG.Add(1)
 	defer f.uploadWG.Done()
+	mu := f.uploadMuFor(path)
+	mu.Lock()
+	defer mu.Unlock()
 	entry, err := f.spool.Open(key)
 	if err != nil {
 		debugf("asyncUpload %q open err: %v", path, err)
@@ -466,8 +435,21 @@ func (f *Fs) Flush(path string, fh uint64) int {
 		debugf("Flush %q fh=%d skip", path, fh)
 		return 0
 	}
-	debugf("Flush %q fh=%d", path, fh)
-	return f.upload(h)
+	key := f.spoolKey(h.path)
+	if h.deleted {
+		f.spool.Remove(key)
+		h.spooled = false
+		return 0
+	}
+	if f.isExcluded(h.path) {
+		h.spooled = false
+		return 0
+	}
+	h.spooled = false
+	if f.spool.Exists(key) {
+		go f.asyncUpload(key, h.path)
+	}
+	return 0
 }
 
 func (f *Fs) Fsync(path string, datasync bool, fh uint64) int {
@@ -476,11 +458,21 @@ func (f *Fs) Fsync(path string, datasync bool, fh uint64) int {
 
 func (f *Fs) Release(path string, fh uint64) int {
 	h := f.handles.Remove(fh)
-	if h != nil && h.spooled {
-		debugf("Release %q fh=%d spooled", path, fh)
-		return f.upload(h)
+	if h == nil || !h.spooled {
+		debugf("Release %q fh=%d", path, fh)
+		return 0
 	}
-	debugf("Release %q fh=%d", path, fh)
+	key := f.spoolKey(h.path)
+	if h.deleted {
+		f.spool.Remove(key)
+		return 0
+	}
+	if f.isExcluded(h.path) {
+		return 0
+	}
+	if f.spool.Exists(key) {
+		go f.asyncUpload(key, h.path)
+	}
 	return 0
 }
 
