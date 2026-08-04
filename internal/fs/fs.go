@@ -106,7 +106,6 @@ func (f *Fs) currentMeta(path string) (*storage.Meta, error) {
 }
 
 func (f *Fs) upload(h *handle) int {
-	fmt.Fprintf(os.Stderr, "DBG upload begin %q spooled=%v deleted=%v\n", h.path, h.spooled, h.deleted)
 	key := f.spoolKey(h.path)
 	if !f.spool.Exists(key) {
 		return 0
@@ -178,7 +177,6 @@ func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
 }
 
 func (f *Fs) Readdir(path string, fill func(name string, stat *fuse.Stat_t, off int64) bool, off int64, fh uint64) int {
-	fmt.Fprintf(os.Stderr, "DBG Readdir in %q\n", path)
 	path = f.norm(path)
 	entries, ok := f.dirs.Get(path)
 	if !ok {
@@ -189,7 +187,6 @@ func (f *Fs) Readdir(path string, fill func(name string, stat *fuse.Stat_t, off 
 		}
 		f.dirs.Set(path, entries)
 	}
-	fmt.Fprintf(os.Stderr, "DBG Readdir %q cached=%v entries=%d\n", path, ok, len(entries))
 	names := make([]string, 0, len(entries)+2)
 	names = append(names, ".", "..")
 	for _, e := range entries {
@@ -281,9 +278,11 @@ func (f *Fs) resetSpool(key string) error {
 }
 
 func (f *Fs) Create(path string, flags int, mode uint32) (int, uint64) {
-	fmt.Fprintf(os.Stderr, "DBG Create %q\n", path)
 	path = f.norm(path)
 	if err := f.resetSpool(f.spoolKey(path)); err != nil {
+		return -fuse.EIO, ^uint64(0)
+	}
+	if err := f.client.Put(context.Background(), path, strings.NewReader(""), 0, f.chunkSize); err != nil {
 		return -fuse.EIO, ^uint64(0)
 	}
 	f.metas.Invalidate(path)
@@ -381,7 +380,6 @@ func (f *Fs) Write(path string, buff []byte, off int64, fh uint64) int {
 }
 
 func (f *Fs) Flush(path string, fh uint64) int {
-	fmt.Fprintf(os.Stderr, "DBG Flush %q fh=%d\n", path, fh)
 	h := f.handles.Get(fh)
 	if h == nil || !h.spooled {
 		return 0
@@ -394,7 +392,6 @@ func (f *Fs) Fsync(path string, datasync bool, fh uint64) int {
 }
 
 func (f *Fs) Release(path string, fh uint64) int {
-	fmt.Fprintf(os.Stderr, "DBG Release %q fh=%d\n", path, fh)
 	h := f.handles.Remove(fh)
 	if h != nil && h.spooled {
 		return f.upload(h)
