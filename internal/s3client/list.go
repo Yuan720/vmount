@@ -56,8 +56,10 @@ func (c *Client) Stat(ctx context.Context, path string) (*storage.Meta, error) {
 			c.negRemove(path)
 			return &storage.Meta{Size: 0, ModTime: placeholder.LastModified, IsDir: true}, nil
 		}
-	}
-	if errors.As(err, &er) && er.Code == "NoSuchKey" {
+		if errors.As(err, &er) && er.Code == "NoSuchKey" {
+			c.negSet(path)
+		}
+	} else {
 		c.negSet(path)
 	}
 	debugf("Stat %q -> not found", path)
