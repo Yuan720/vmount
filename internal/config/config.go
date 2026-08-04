@@ -19,6 +19,7 @@ type Config struct {
 	MultipartThreshold int64   `json:"multipart_threshold"`
 	ChunkSize         int64    `json:"chunk_size"`
 	UseTLS            bool     `json:"use_tls"`
+	Region            string   `json:"region"`
 	ExcludeSuffixes   []string `json:"exclude_suffixes"`
 }
 
@@ -30,6 +31,7 @@ func Default() Config {
 		ListTTLSeconds:     30,
 		MultipartThreshold: 100 * 1024 * 1024,
 		ChunkSize:          8 * 1024 * 1024,
+		Region:             "us-east-1",
 		ExcludeSuffixes: []string{
 			".crdownload", ".part", ".partial", ".download", ".tmp", ".temp", ".aria2",
 		},

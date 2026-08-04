@@ -11,5 +11,6 @@
   "multipart_threshold": 104857600,
   "chunk_size": 8388608,
   "use_tls": false,
+  "region": "us-east-1",
   "exclude_suffixes": [".crdownload", ".part", ".partial", ".download", ".tmp", ".temp", ".aria2"]
 }

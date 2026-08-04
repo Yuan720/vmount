@@ -24,13 +24,17 @@ type Client struct {
 
 var _ storage.Backend = (*Client)(nil)
 
-func New(endpoint, bucket, prefix, accessKey, secretKey string, useTLS bool, timeout time.Duration) (*Client, error) {
+func New(endpoint, bucket, prefix, accessKey, secretKey string, useTLS bool, timeout time.Duration, region string) (*Client, error) {
 	endpoint = strings.TrimPrefix(endpoint, "http://")
 	endpoint = strings.TrimPrefix(endpoint, "https://")
 	endpoint = strings.TrimSuffix(endpoint, "/")
+	if region == "" {
+		region = "us-east-1"
+	}
 	cli, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
 		Secure: useTLS,
+		Region: region,
 	})
 	if err != nil {
 		return nil, err
