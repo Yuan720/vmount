@@ -23,14 +23,17 @@ func NewDirCache(ttl time.Duration) *DirCache {
 	return &DirCache{dirs: map[string]dirEntry{}, ttl: ttl}
 }
 
-func (d *DirCache) Get(path string) ([]storage.Entry, bool) {
+// Get returns cached entries. ok reports whether the path is cached at all;
+// stale reports whether the entry is older than the TTL (caller may return
+// the stale data immediately and refresh in the background).
+func (d *DirCache) Get(path string) ([]storage.Entry, bool, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	e, ok := d.dirs[path]
-	if !ok || time.Since(e.fetchedAt) > d.ttl {
-		return nil, false
+	if !ok {
+		return nil, false, false
 	}
-	return e.entries, true
+	return e.entries, true, d.ttl > 0 && time.Since(e.fetchedAt) > d.ttl
 }
 
 func (d *DirCache) Set(path string, entries []storage.Entry) {
@@ -75,15 +78,16 @@ func NewMetaCache(ttl time.Duration) *MetaCache {
 	return &MetaCache{meta: map[string]metaEntry{}, ttl: ttl}
 }
 
-func (m *MetaCache) Get(path string) (storage.Meta, bool) {
+// Get returns cached meta. ok reports whether the path is cached at all;
+// stale reports whether the entry is older than the TTL.
+func (m *MetaCache) Get(path string) (storage.Meta, bool, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.meta[path]
-	if !ok || (m.ttl > 0 && time.Since(e.fetchedAt) > m.ttl) {
-		delete(m.meta, path)
-		return storage.Meta{}, false
+	if !ok {
+		return storage.Meta{}, false, false
 	}
-	return e.meta, true
+	return e.meta, true, m.ttl > 0 && time.Since(e.fetchedAt) > m.ttl
 }
 
 func (m *MetaCache) Set(path string, meta storage.Meta) {

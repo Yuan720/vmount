@@ -30,11 +30,52 @@ type Fs struct {
 	usePH     bool
 	uploadWG  sync.WaitGroup
 	uploadMx  sync.Map
+	refreshMx sync.Map
 }
 
 func (f *Fs) uploadMuFor(path string) *sync.Mutex {
 	mu, _ := f.uploadMx.LoadOrStore(path, &sync.Mutex{})
 	return mu.(*sync.Mutex)
+}
+
+func (f *Fs) beginRefresh(path string) bool {
+	_, loaded := f.refreshMx.LoadOrStore(path, struct{}{})
+	return !loaded
+}
+
+func (f *Fs) endRefresh(path string) {
+	f.refreshMx.Delete(path)
+}
+
+func (f *Fs) refreshDir(path string) {
+	if !f.beginRefresh(path) {
+		return
+	}
+	defer f.endRefresh(path)
+	entries, err := f.client.List(context.Background(), path)
+	if err != nil {
+		return
+	}
+	f.dirs.Set(path, entries)
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name)
+	}
+	f.cm.Update(path, names)
+	debugf("refreshDir %q -> %d entries", path, len(entries))
+}
+
+func (f *Fs) refreshMeta(path string) {
+	if !f.beginRefresh(path) {
+		return
+	}
+	defer f.endRefresh(path)
+	meta, err := f.client.Stat(context.Background(), path)
+	if err != nil {
+		return
+	}
+	f.metas.Set(path, *meta)
+	debugf("refreshMeta %q size=%d isdir=%v", path, meta.Size, meta.IsDir)
 }
 
 func New(client storage.Backend, cfg *config.Config) (*Fs, error) {
@@ -129,7 +170,7 @@ func (f *Fs) currentMeta(path string) (*storage.Meta, error) {
 	if size, mt, ok := f.spool.SizeOf(f.spoolKey(path)); ok {
 		return &storage.Meta{Size: size, ModTime: mt}, nil
 	}
-	if meta, ok := f.metas.Get(path); ok {
+	if meta, ok, stale := f.metas.Get(path); ok && !stale {
 		return &meta, nil
 	}
 	meta, err := f.client.Stat(context.Background(), path)
@@ -203,22 +244,35 @@ func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
 		f.fillStat(stat, &storage.Meta{IsDir: true})
 		return 0
 	}
-	meta, err := f.currentMeta(path)
-	if err != nil {
-		if err == storage.ErrNotFound {
-			debugf("Getattr %q -> ENOENT", path)
-			return -fuse.ENOENT
-		}
-		debugf("Getattr %q err: %v", path, err)
-		return -fuse.EIO
+	if size, mt, ok := f.spool.SizeOf(f.spoolKey(path)); ok {
+		f.fillStat(stat, &storage.Meta{Size: size, ModTime: mt})
+		return 0
 	}
-	f.fillStat(stat, meta)
+	meta, ok, stale := f.metas.Get(path)
+	if !ok {
+		m, err := f.client.Stat(context.Background(), path)
+		if err != nil {
+			if err == storage.ErrNotFound {
+				debugf("Getattr %q -> ENOENT", path)
+				return -fuse.ENOENT
+			}
+			debugf("Getattr %q err: %v", path, err)
+			return -fuse.EIO
+		}
+		f.metas.Set(path, *m)
+		f.fillStat(stat, m)
+		return 0
+	}
+	if stale {
+		go f.refreshMeta(path)
+	}
+	f.fillStat(stat, &meta)
 	return 0
 }
 
 func (f *Fs) Readdir(path string, fill func(name string, stat *fuse.Stat_t, off int64) bool, off int64, fh uint64) int {
 	path = f.norm(path)
-	entries, ok := f.dirs.Get(path)
+	entries, ok, stale := f.dirs.Get(path)
 	if !ok {
 		var err error
 		entries, err = f.client.List(context.Background(), path)
@@ -226,6 +280,8 @@ func (f *Fs) Readdir(path string, fill func(name string, stat *fuse.Stat_t, off 
 			return -fuse.EIO
 		}
 		f.dirs.Set(path, entries)
+	} else if stale {
+		go f.refreshDir(path)
 	}
 	names := make([]string, 0, len(entries)+2)
 	names = append(names, ".", "..")

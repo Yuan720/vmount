@@ -116,18 +116,17 @@ func retry(fn func() error, attempts int) error {
 	return err
 }
 
-func (c *Client) negHit(path string) bool {
+// negHit reports whether path is in the negative cache and whether that
+// entry is stale (older than negTTL). A stale hit may still be served
+// immediately while a background re-check refreshes it.
+func (c *Client) negHit(path string) (bool, bool) {
 	c.negMu.Lock()
 	defer c.negMu.Unlock()
 	t, ok := c.negCache[path]
 	if !ok {
-		return false
+		return false, false
 	}
-	if time.Since(t) > negTTL {
-		delete(c.negCache, path)
-		return false
-	}
-	return true
+	return true, time.Since(t) > negTTL
 }
 
 func (c *Client) negSet(path string) {
@@ -140,4 +139,20 @@ func (c *Client) negRemove(path string) {
 	c.negMu.Lock()
 	defer c.negMu.Unlock()
 	delete(c.negCache, path)
+}
+
+// negRefresh re-checks a stale negative cache entry in the background.
+func (c *Client) negRefresh(ctx context.Context, path string) {
+	k := c.key(path)
+	_, err := c.cli.StatObject(ctx, c.bucket, k, minio.StatObjectOptions{})
+	if err == nil {
+		c.negRemove(path)
+	} else {
+		var er minio.ErrorResponse
+		if errors.As(err, &er) && er.Code == "NoSuchKey" {
+			c.negSet(path)
+		} else {
+			c.negRemove(path)
+		}
+	}
 }

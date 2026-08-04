@@ -13,8 +13,11 @@ import (
 )
 
 func (c *Client) Stat(ctx context.Context, path string) (*storage.Meta, error) {
-	if c.negHit(path) {
-		debugf("Stat %q -> negcache miss", path)
+	if hit, stale := c.negHit(path); hit {
+		if stale {
+			debugf("Stat %q -> negcache stale, background recheck", path)
+			go c.negRefresh(ctx, path)
+		}
 		return nil, storage.ErrNotFound
 	}
 	ctx, cancel := c.ctx(ctx)
