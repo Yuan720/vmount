@@ -153,6 +153,7 @@ func (f *Fs) Statfs(path string, statfs *fuse.Statfs_t) int {
 }
 
 func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
+	fmt.Fprintf(os.Stderr, "DBG Getattr path=%q fh=%d\n", path, fh)
 	path = f.norm(path)
 	if h := f.handles.Get(fh); h != nil {
 		path = h.path
@@ -208,6 +209,7 @@ func (f *Fs) Releasedir(path string, fh uint64) int {
 }
 
 func (f *Fs) Open(path string, flags int) (int, uint64) {
+	fmt.Fprintf(os.Stderr, "DBG Open path=%q flags=%#o\n", path, flags)
 	path = f.norm(path)
 	write := flags&fuse.O_ACCMODE != fuse.O_RDONLY
 	if write && flags&fuse.O_CREAT == 0 {
@@ -249,6 +251,7 @@ func (f *Fs) resetSpool(key string) error {
 }
 
 func (f *Fs) Create(path string, flags int, mode uint32) (int, uint64) {
+	fmt.Fprintf(os.Stderr, "DBG Create path=%q flags=%#o mode=%#o\n", path, flags, mode)
 	path = f.norm(path)
 	if err := f.resetSpool(f.spoolKey(path)); err != nil {
 		return -fuse.EIO, ^uint64(0)
