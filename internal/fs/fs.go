@@ -241,6 +241,7 @@ func (f *Fs) Readdir(path string, fill func(name string, stat *fuse.Stat_t, off 
 }
 
 func (f *Fs) Opendir(path string) (int, uint64) {
+	debugf("Opendir %q", path)
 	fh := f.handles.Add(&handle{path: f.norm(path)})
 	return 0, fh
 }
