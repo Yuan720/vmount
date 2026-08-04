@@ -95,7 +95,7 @@ func TestSpoolTruncate(t *testing.T) {
 
 func TestSpoolRemoveOpenFails(t *testing.T) {
 	s := newTestSpool(t)
-	e, _ := s.Open("spool:k4")
+	_, _ = s.Open("spool:k4")
 	if err := s.Remove("spool:k4"); err == nil {
 		t.Fatalf("Remove of open spool should fail")
 	}

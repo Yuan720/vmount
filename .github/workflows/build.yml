@@ -48,6 +48,7 @@ jobs:
           go mod tidy
           $env:CGO_ENABLED = "1"
           go test ./...
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           go build -trimpath -ldflags "-s -w" -o vmount.exe ./cmd/vmount
 
       - uses: actions/upload-artifact@v4
