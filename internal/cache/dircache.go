@@ -43,9 +43,12 @@ func (d *DirCache) Invalidate(path string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.dirs, path)
+	if path == "" {
+		return
+	}
 	prefix := path + "/"
 	for p := range d.dirs {
-		if strings.HasPrefix(p, prefix) || strings.HasPrefix(p, path) {
+		if strings.HasPrefix(p, prefix) {
 			delete(d.dirs, p)
 		}
 	}

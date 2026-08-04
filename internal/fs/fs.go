@@ -328,15 +328,21 @@ func (f *Fs) Read(path string, buff []byte, off int64, fh uint64) int {
 			if blkStart+size > meta.Size {
 				size = meta.Size - blkStart
 			}
-			rc, _, gerr := f.client.GetRange(context.Background(), path, blkStart, size)
-			if gerr != nil {
-				return -fuse.EIO
+		rc, _, gerr := f.client.GetRange(context.Background(), path, blkStart, size)
+		if gerr != nil {
+			if n > 0 {
+				return n
 			}
-			data, gerr = io.ReadAll(io.LimitReader(rc, size))
-			rc.Close()
-			if gerr != nil {
-				return -fuse.EIO
+			return -fuse.EIO
+		}
+		data, gerr = io.ReadAll(io.LimitReader(rc, size))
+		rc.Close()
+		if gerr != nil {
+			if n > 0 {
+				return n
 			}
+			return -fuse.EIO
+		}
 			f.blocks.Put(blkKey, meta.ModTime, data)
 		}
 		rel := off - blkStart
@@ -472,11 +478,43 @@ func (f *Fs) Rmdir(path string) int {
 func (f *Fs) Rename(oldpath string, newpath string) int {
 	oldpath = f.norm(oldpath)
 	newpath = f.norm(newpath)
-	if err := f.client.Copy(context.Background(), oldpath, newpath); err != nil {
+	meta, err := f.client.Stat(context.Background(), oldpath)
+	if err != nil {
+		if err == s3client.ErrNotFound {
+			return -fuse.ENOENT
+		}
 		return -fuse.EIO
 	}
-	if err := f.client.Remove(context.Background(), oldpath); err != nil {
-		return -fuse.EIO
+	if !meta.IsDir {
+		if err := f.client.Copy(context.Background(), oldpath, newpath); err != nil {
+			return -fuse.EIO
+		}
+		if err := f.client.Remove(context.Background(), oldpath); err != nil {
+			return -fuse.EIO
+		}
+	} else {
+		rels, lerr := f.client.ListRecursive(context.Background(), oldpath)
+		if lerr != nil {
+			return -fuse.EIO
+		}
+		for _, rel := range rels {
+			if rel == "" {
+				if cerr := f.client.CopyPlaceholder(context.Background(), oldpath, newpath); cerr != nil {
+					return -fuse.EIO
+				}
+			} else {
+				if cerr := f.client.Copy(context.Background(), oldpath+"/"+rel, newpath+"/"+rel); cerr != nil {
+					return -fuse.EIO
+				}
+			}
+		}
+		for _, rel := range rels {
+			if rel == "" {
+				f.client.RemovePlaceholder(context.Background(), oldpath)
+			} else {
+				f.client.Remove(context.Background(), oldpath+"/"+rel)
+			}
+		}
 	}
 	f.invalidatePath(oldpath)
 	f.invalidatePath(newpath)

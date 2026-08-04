@@ -47,6 +47,7 @@ jobs:
           gcc --version
           go mod tidy
           $env:CGO_ENABLED = "1"
+          go test ./...
           go build -trimpath -ldflags "-s -w" -o vmount.exe ./cmd/vmount
 
       - uses: actions/upload-artifact@v4

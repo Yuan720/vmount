@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -14,10 +15,12 @@ var (
 	ErrNotFound = errors.New("not found")
 )
 
+const negTTL = 10 * time.Second
+
 type Meta struct {
-	Size       int64
-	ModTime    time.Time
-	IsDir      bool
+	Size    int64
+	ModTime time.Time
+	IsDir   bool
 }
 
 type Entry struct {
@@ -28,10 +31,12 @@ type Entry struct {
 }
 
 type Client struct {
-	cli    *minio.Client
-	bucket string
-	prefix string
-	timeout time.Duration
+	cli      *minio.Client
+	bucket   string
+	prefix   string
+	timeout  time.Duration
+	negMu    sync.Mutex
+	negCache map[string]time.Time
 }
 
 func New(endpoint, bucket, prefix, accessKey, secretKey string, useTLS bool, timeout time.Duration) (*Client, error) {
@@ -50,10 +55,11 @@ func New(endpoint, bucket, prefix, accessKey, secretKey string, useTLS bool, tim
 		prefix += "/"
 	}
 	return &Client{
-		cli:     cli,
-		bucket:  bucket,
-		prefix:  prefix,
-		timeout: timeout,
+		cli:      cli,
+		bucket:   bucket,
+		prefix:   prefix,
+		timeout:  timeout,
+		negCache: map[string]time.Time{},
 	}, nil
 }
 
@@ -93,4 +99,30 @@ func retry(fn func() error, attempts int) error {
 		}
 	}
 	return err
+}
+
+func (c *Client) negHit(path string) bool {
+	c.negMu.Lock()
+	defer c.negMu.Unlock()
+	t, ok := c.negCache[path]
+	if !ok {
+		return false
+	}
+	if time.Since(t) > negTTL {
+		delete(c.negCache, path)
+		return false
+	}
+	return true
+}
+
+func (c *Client) negSet(path string) {
+	c.negMu.Lock()
+	defer c.negMu.Unlock()
+	c.negCache[path] = time.Now()
+}
+
+func (c *Client) negRemove(path string) {
+	c.negMu.Lock()
+	defer c.negMu.Unlock()
+	delete(c.negCache, path)
 }
