@@ -82,7 +82,14 @@ func (d *DirCache) Load(path string) error {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return json.Unmarshal(data, &d.dirs)
+	if err := json.Unmarshal(data, &d.dirs); err != nil {
+		return err
+	}
+	for k, e := range d.dirs {
+		e.FetchedAt = time.Time{}
+		d.dirs[k] = e
+	}
+	return nil
 }
 
 type MetaCache struct {
@@ -141,5 +148,12 @@ func (m *MetaCache) Load(path string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return json.Unmarshal(data, &m.meta)
+	if err := json.Unmarshal(data, &m.meta); err != nil {
+		return err
+	}
+	for k, e := range m.meta {
+		e.FetchedAt = time.Time{}
+		m.meta[k] = e
+	}
+	return nil
 }
