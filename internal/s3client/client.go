@@ -2,6 +2,7 @@ package s3client
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -10,6 +11,22 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
+
+// uaTransport overrides the User-Agent so gateways that route by client
+// type (e.g. the Hugging Face S3 gateway returns 302 redirects to CDN for
+// unknown clients, but proxies directly for botocore-style clients) serve
+// data without redirects that minio-go does not follow.
+type uaTransport struct {
+	base http.RoundTripper
+	ua   string
+}
+
+func (t *uaTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if t.ua != "" {
+		r.Header.Set("User-Agent", t.ua)
+	}
+	return t.base.RoundTrip(r)
+}
 
 const negTTL = 10 * time.Second
 
@@ -24,7 +41,7 @@ type Client struct {
 
 var _ storage.Backend = (*Client)(nil)
 
-func New(endpoint, bucket, prefix, accessKey, secretKey string, useTLS bool, timeout time.Duration, region string) (*Client, error) {
+func New(endpoint, bucket, prefix, accessKey, secretKey string, useTLS bool, timeout time.Duration, region, userAgent string) (*Client, error) {
 	endpoint = strings.TrimPrefix(endpoint, "http://")
 	endpoint = strings.TrimPrefix(endpoint, "https://")
 	endpoint = strings.TrimSuffix(endpoint, "/")
@@ -32,9 +49,10 @@ func New(endpoint, bucket, prefix, accessKey, secretKey string, useTLS bool, tim
 		region = "us-east-1"
 	}
 	cli, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
-		Secure: useTLS,
-		Region: region,
+		Creds:     credentials.NewStaticV4(accessKey, secretKey, ""),
+		Secure:    useTLS,
+		Region:    region,
+		Transport: &uaTransport{base: http.DefaultTransport, ua: userAgent},
 	})
 	if err != nil {
 		return nil, err
