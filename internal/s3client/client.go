@@ -2,33 +2,16 @@ package s3client
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Yuan720/vmount/internal/storage"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-var (
-	ErrNotFound = errors.New("not found")
-)
-
 const negTTL = 10 * time.Second
-
-type Meta struct {
-	Size    int64
-	ModTime time.Time
-	IsDir   bool
-}
-
-type Entry struct {
-	Name    string
-	IsDir   bool
-	Size    int64
-	ModTime time.Time
-}
 
 type Client struct {
 	cli      *minio.Client
@@ -38,6 +21,8 @@ type Client struct {
 	negMu    sync.Mutex
 	negCache map[string]time.Time
 }
+
+var _ storage.Backend = (*Client)(nil)
 
 func New(endpoint, bucket, prefix, accessKey, secretKey string, useTLS bool, timeout time.Duration) (*Client, error) {
 	endpoint = strings.TrimPrefix(endpoint, "http://")

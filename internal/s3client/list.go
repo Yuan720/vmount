@@ -1,4 +1,4 @@
-package s3client
+﻿package s3client
 
 import (
 	"context"
@@ -8,12 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Yuan720/vmount/internal/storage"
 	"github.com/minio/minio-go/v7"
 )
 
-func (c *Client) Stat(ctx context.Context, path string) (*Meta, error) {
+func (c *Client) Stat(ctx context.Context, path string) (*storage.Meta, error) {
 	if c.negHit(path) {
-		return nil, ErrNotFound
+		return nil, storage.ErrNotFound
 	}
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
@@ -51,7 +52,7 @@ func (c *Client) Stat(ctx context.Context, path string) (*Meta, error) {
 	if errors.As(err, &er) && er.Code == "NoSuchKey" {
 		c.negSet(path)
 	}
-	return nil, ErrNotFound
+	return nil, storage.ErrNotFound
 }
 
 func (c *Client) GetRange(ctx context.Context, path string, off, size int64) (io.ReadCloser, int64, error) {
@@ -89,7 +90,7 @@ func (c *Client) GetFull(ctx context.Context, path string) (io.ReadCloser, int64
 	return obj, info.Size, nil
 }
 
-func (c *Client) List(ctx context.Context, path string) ([]Entry, error) {
+func (c *Client) List(ctx context.Context, path string) ([]storage.Entry, error) {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
 
@@ -100,7 +101,7 @@ func (c *Client) List(ctx context.Context, path string) ([]Entry, error) {
 	})
 
 	seen := map[string]bool{}
-	var entries []Entry
+	var entries []storage.Entry
 	for info := range ch {
 		if info.Err != nil {
 			return nil, info.Err
@@ -119,14 +120,14 @@ func (c *Client) List(ctx context.Context, path string) ([]Entry, error) {
 			if mt.IsZero() {
 				mt = time.Now()
 			}
-			entries = append(entries, Entry{Name: name, IsDir: true, ModTime: mt})
+			entries = append(entries, storage.Entry{Name: name, IsDir: true, ModTime: mt})
 			continue
 		}
 		if seen[name] {
 			continue
 		}
 		seen[name] = true
-		entries = append(entries, Entry{Name: name, IsDir: false, Size: info.Size, ModTime: info.LastModified})
+		entries = append(entries, storage.Entry{Name: name, IsDir: false, Size: info.Size, ModTime: info.LastModified})
 	}
 	sort.Slice(entries, func(i, j int) bool {
 		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)

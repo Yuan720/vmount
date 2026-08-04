@@ -1,15 +1,15 @@
-package cache
+﻿package cache
 
 import (
 	"testing"
 	"time"
 
-	"github.com/Yuan720/vmount/internal/s3client"
+	"github.com/Yuan720/vmount/internal/storage"
 )
 
 func TestDirCacheSetGet(t *testing.T) {
 	d := NewDirCache(time.Minute)
-	entries := []s3client.Entry{{Name: "a"}}
+	entries := []storage.Entry{{Name: "a"}}
 	d.Set("", entries)
 	got, ok := d.Get("")
 	if !ok || len(got) != 1 || got[0].Name != "a" {
@@ -19,7 +19,7 @@ func TestDirCacheSetGet(t *testing.T) {
 
 func TestDirCacheTTL(t *testing.T) {
 	d := NewDirCache(time.Millisecond)
-	d.Set("x", []s3client.Entry{})
+	d.Set("x", []storage.Entry{})
 	time.Sleep(5 * time.Millisecond)
 	if _, ok := d.Get("x"); ok {
 		t.Fatalf("expired entry should miss")
@@ -28,9 +28,9 @@ func TestDirCacheTTL(t *testing.T) {
 
 func TestDirCacheInvalidateRootOnly(t *testing.T) {
 	d := NewDirCache(time.Minute)
-	d.Set("", []s3client.Entry{})
-	d.Set("a", []s3client.Entry{})
-	d.Set("a/b", []s3client.Entry{})
+	d.Set("", []storage.Entry{})
+	d.Set("a", []storage.Entry{})
+	d.Set("a/b", []storage.Entry{})
 	d.Invalidate("")
 	if _, ok := d.Get(""); ok {
 		t.Fatalf("root entry should be invalidated")
@@ -45,10 +45,10 @@ func TestDirCacheInvalidateRootOnly(t *testing.T) {
 
 func TestDirCacheInvalidateSubtree(t *testing.T) {
 	d := NewDirCache(time.Minute)
-	d.Set("a", []s3client.Entry{})
-	d.Set("a/b", []s3client.Entry{})
-	d.Set("ab", []s3client.Entry{})
-	d.Set("a/c", []s3client.Entry{})
+	d.Set("a", []storage.Entry{})
+	d.Set("a/b", []storage.Entry{})
+	d.Set("ab", []storage.Entry{})
+	d.Set("a/c", []storage.Entry{})
 	d.Invalidate("a")
 	if _, ok := d.Get("a"); ok {
 		t.Fatalf("a should be invalidated")
@@ -66,8 +66,8 @@ func TestDirCacheInvalidateSubtree(t *testing.T) {
 
 func TestDirCacheInvalidateAll(t *testing.T) {
 	d := NewDirCache(time.Minute)
-	d.Set("", []s3client.Entry{})
-	d.Set("x", []s3client.Entry{})
+	d.Set("", []storage.Entry{})
+	d.Set("x", []storage.Entry{})
 	d.InvalidateAll()
 	if _, ok := d.Get(""); ok {
 		t.Fatalf("root should be gone")
@@ -79,7 +79,7 @@ func TestDirCacheInvalidateAll(t *testing.T) {
 
 func TestMetaCacheTTL(t *testing.T) {
 	m := NewMetaCache(0)
-	m.Set("f", s3client.Meta{Size: 10})
+	m.Set("f", storage.Meta{Size: 10})
 	got, ok := m.Get("f")
 	if !ok || got.Size != 10 {
 		t.Fatalf("Get = %v,%v", got, ok)

@@ -1,4 +1,4 @@
-package fs
+﻿package fs
 
 import (
 	"context"
@@ -11,13 +11,13 @@ import (
 
 	"github.com/Yuan720/vmount/internal/cache"
 	"github.com/Yuan720/vmount/internal/config"
-	"github.com/Yuan720/vmount/internal/s3client"
+	"github.com/Yuan720/vmount/internal/storage"
 	"github.com/winfsp/cgofuse/fuse"
 )
 
 type Fs struct {
 	fuse.FileSystemBase
-	client    *s3client.Client
+	client    storage.Backend
 	blocks    *cache.BlockCache
 	dirs      *cache.DirCache
 	metas     *cache.MetaCache
@@ -27,7 +27,7 @@ type Fs struct {
 	chunkSize int64
 }
 
-func New(client *s3client.Client, cfg *config.Config) (*Fs, error) {
+func New(client storage.Backend, cfg *config.Config) (*Fs, error) {
 	spool, err := cache.NewSpool(filepath.Join(cfg.CacheDir, "spool"))
 	if err != nil {
 		return nil, err
@@ -61,7 +61,7 @@ func (f *Fs) parentDir(path string) string {
 	return path[:idx]
 }
 
-func (f *Fs) fillStat(stat *fuse.Stat_t, meta *s3client.Meta) {
+func (f *Fs) fillStat(stat *fuse.Stat_t, meta *storage.Meta) {
 	if meta.IsDir {
 		stat.Mode = fuse.S_IFDIR | 0o777
 		stat.Nlink = 2
@@ -90,9 +90,9 @@ func (f *Fs) spoolKey(path string) string {
 	return "spool:" + path
 }
 
-func (f *Fs) currentMeta(path string) (*s3client.Meta, error) {
+func (f *Fs) currentMeta(path string) (*storage.Meta, error) {
 	if size, mt, ok := f.spool.SizeOf(f.spoolKey(path)); ok {
-		return &s3client.Meta{Size: size, ModTime: mt}, nil
+		return &storage.Meta{Size: size, ModTime: mt}, nil
 	}
 	if meta, ok := f.metas.Get(path); ok {
 		return &meta, nil
@@ -162,12 +162,12 @@ func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
 		path = h.path
 	}
 	if path == "" {
-		f.fillStat(stat, &s3client.Meta{IsDir: true})
+		f.fillStat(stat, &storage.Meta{IsDir: true})
 		return 0
 	}
 	meta, err := f.currentMeta(path)
 	if err != nil {
-		if err == s3client.ErrNotFound {
+		if err == storage.ErrNotFound {
 			return -fuse.ENOENT
 		}
 		return -fuse.EIO
@@ -217,7 +217,7 @@ func (f *Fs) Open(path string, flags int) (int, uint64) {
 	if write && flags&fuse.O_CREAT == 0 {
 		meta, err := f.currentMeta(path)
 		if err != nil {
-			if err == s3client.ErrNotFound {
+			if err == storage.ErrNotFound {
 				return -fuse.ENOENT, ^uint64(0)
 			}
 			return -fuse.EIO, ^uint64(0)
@@ -295,7 +295,7 @@ func (f *Fs) Read(path string, buff []byte, off int64, fh uint64) int {
 	}
 	meta, err := f.currentMeta(path)
 	if err != nil {
-		if err == s3client.ErrNotFound {
+		if err == storage.ErrNotFound {
 			return 0
 		}
 		return -fuse.EIO
@@ -423,7 +423,7 @@ func (f *Fs) Truncate(path string, size int64, fh uint64) int {
 func (f *Fs) prepareSpool(path string, size int64) int {
 	meta, err := f.client.Stat(context.Background(), path)
 	if err != nil {
-		if err == s3client.ErrNotFound {
+		if err == storage.ErrNotFound {
 			return 0
 		}
 		return -fuse.EIO
@@ -480,7 +480,7 @@ func (f *Fs) Rename(oldpath string, newpath string) int {
 	newpath = f.norm(newpath)
 	meta, err := f.client.Stat(context.Background(), oldpath)
 	if err != nil {
-		if err == s3client.ErrNotFound {
+		if err == storage.ErrNotFound {
 			return -fuse.ENOENT
 		}
 		return -fuse.EIO

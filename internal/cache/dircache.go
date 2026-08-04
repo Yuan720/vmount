@@ -1,11 +1,11 @@
-package cache
+﻿package cache
 
 import (
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/Yuan720/vmount/internal/s3client"
+	"github.com/Yuan720/vmount/internal/storage"
 )
 
 type DirCache struct {
@@ -15,7 +15,7 @@ type DirCache struct {
 }
 
 type dirEntry struct {
-	entries   []s3client.Entry
+	entries   []storage.Entry
 	fetchedAt time.Time
 }
 
@@ -23,7 +23,7 @@ func NewDirCache(ttl time.Duration) *DirCache {
 	return &DirCache{dirs: map[string]dirEntry{}, ttl: ttl}
 }
 
-func (d *DirCache) Get(path string) ([]s3client.Entry, bool) {
+func (d *DirCache) Get(path string) ([]storage.Entry, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	e, ok := d.dirs[path]
@@ -33,7 +33,7 @@ func (d *DirCache) Get(path string) ([]s3client.Entry, bool) {
 	return e.entries, true
 }
 
-func (d *DirCache) Set(path string, entries []s3client.Entry) {
+func (d *DirCache) Set(path string, entries []storage.Entry) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.dirs[path] = dirEntry{entries: entries, fetchedAt: time.Now()}
@@ -67,7 +67,7 @@ type MetaCache struct {
 }
 
 type metaEntry struct {
-	meta      s3client.Meta
+	meta      storage.Meta
 	fetchedAt time.Time
 }
 
@@ -75,18 +75,18 @@ func NewMetaCache(ttl time.Duration) *MetaCache {
 	return &MetaCache{meta: map[string]metaEntry{}, ttl: ttl}
 }
 
-func (m *MetaCache) Get(path string) (s3client.Meta, bool) {
+func (m *MetaCache) Get(path string) (storage.Meta, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.meta[path]
 	if !ok || (m.ttl > 0 && time.Since(e.fetchedAt) > m.ttl) {
 		delete(m.meta, path)
-		return s3client.Meta{}, false
+		return storage.Meta{}, false
 	}
 	return e.meta, true
 }
 
-func (m *MetaCache) Set(path string, meta s3client.Meta) {
+func (m *MetaCache) Set(path string, meta storage.Meta) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.meta[path] = metaEntry{meta: meta, fetchedAt: time.Now()}
