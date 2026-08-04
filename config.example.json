@@ -10,5 +10,6 @@
   "list_ttl_sec": 30,
   "multipart_threshold": 104857600,
   "chunk_size": 8388608,
-  "use_tls": false
+  "use_tls": false,
+  "exclude_suffixes": [".crdownload", ".part", ".partial", ".download", ".tmp", ".temp", ".aria2"]
 }

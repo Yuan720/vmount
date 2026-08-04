@@ -25,6 +25,7 @@ type Fs struct {
 	cm        *caseMap
 	handles   *handleTable
 	chunkSize int64
+	exclude   map[string]bool
 }
 
 func New(client storage.Backend, cfg *config.Config) (*Fs, error) {
@@ -36,6 +37,7 @@ func New(client storage.Backend, cfg *config.Config) (*Fs, error) {
 	if chunk <= 0 {
 		chunk = 8 * 1024 * 1024
 	}
+	exclude := suffixSet(cfg.ExcludeSuffixes)
 	return &Fs{
 		client:    client,
 		blocks:    cache.NewBlockCache(cfg.ReadCacheMB * 1024 * 1024),
@@ -45,7 +47,30 @@ func New(client storage.Backend, cfg *config.Config) (*Fs, error) {
 		cm:        newCaseMap(),
 		handles:   newHandleTable(),
 		chunkSize: chunk,
+		exclude:   exclude,
 	}, nil
+}
+
+func suffixSet(suffixes []string) map[string]bool {
+	m := map[string]bool{}
+	for _, s := range suffixes {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if s == "" {
+			continue
+		}
+		if !strings.HasPrefix(s, ".") {
+			s = "." + s
+		}
+		m[s] = true
+	}
+	return m
+}
+
+func (f *Fs) isExcluded(path string) bool {
+	if len(f.exclude) == 0 {
+		return false
+	}
+	return f.exclude[strings.ToLower(filepath.Ext(path))]
 }
 
 func (f *Fs) norm(path string) string {
@@ -113,6 +138,11 @@ func (f *Fs) upload(h *handle) int {
 	}
 	if h.deleted {
 		f.spool.Remove(key)
+		h.spooled = false
+		return 0
+	}
+	if f.isExcluded(h.path) {
+		debugf("upload %q skipped (excluded suffix)", h.path)
 		h.spooled = false
 		return 0
 	}
@@ -291,9 +321,11 @@ func (f *Fs) Create(path string, flags int, mode uint32) (int, uint64) {
 		debugf("Create %q resetSpool err: %v", path, err)
 		return -fuse.EIO, ^uint64(0)
 	}
-	if err := f.client.Put(context.Background(), path, strings.NewReader(""), 0, f.chunkSize); err != nil {
-		debugf("Create %q empty Put err: %v", path, err)
-		return -fuse.EIO, ^uint64(0)
+	if !f.isExcluded(path) {
+		if err := f.client.Put(context.Background(), path, strings.NewReader(""), 0, f.chunkSize); err != nil {
+			debugf("Create %q empty Put err: %v", path, err)
+			return -fuse.EIO, ^uint64(0)
+		}
 	}
 	f.metas.Invalidate(path)
 	f.dirs.Invalidate(f.parentDir(path))
@@ -501,6 +533,34 @@ func (f *Fs) Rename(oldpath string, newpath string) int {
 	debugf("Rename %q -> %q", oldpath, newpath)
 	oldpath = f.norm(oldpath)
 	newpath = f.norm(newpath)
+	if f.isExcluded(oldpath) {
+		key := f.spoolKey(oldpath)
+		if !f.spool.Exists(key) {
+			debugf("Rename temp %q no spool", oldpath)
+			return -fuse.ENOENT
+		}
+		entry, err := f.spool.Open(key)
+		if err != nil {
+			return -fuse.EIO
+		}
+		rs, rerr := entry.SeekReader()
+		if rerr != nil {
+			f.spool.Close(key)
+			return -fuse.EIO
+		}
+		size := entry.Size()
+		perr := f.client.Put(context.Background(), newpath, rs, size, f.chunkSize)
+		f.spool.Close(key)
+		if perr != nil {
+			debugf("Rename temp %q Put err: %v", oldpath, perr)
+			return -fuse.EIO
+		}
+		f.spool.Remove(key)
+		f.invalidatePath(oldpath)
+		f.invalidatePath(newpath)
+		debugf("Rename temp %q -> %q done size=%d", oldpath, newpath, size)
+		return 0
+	}
 	meta, err := f.client.Stat(context.Background(), oldpath)
 	if err != nil {
 		if err == storage.ErrNotFound {
