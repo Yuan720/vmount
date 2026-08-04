@@ -29,7 +29,6 @@ func TestDirCacheTTL(t *testing.T) {
 		t.Fatalf("expired entry should be marked stale")
 	}
 }
-}
 
 func TestDirCacheInvalidateRootOnly(t *testing.T) {
 	d := NewDirCache(time.Minute)
