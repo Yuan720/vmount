@@ -90,8 +90,8 @@ func (f *Fs) spoolKey(path string) string {
 }
 
 func (f *Fs) currentMeta(path string) (*s3client.Meta, error) {
-	if size, ok := f.spool.SizeOf(f.spoolKey(path)); ok {
-		return &s3client.Meta{Size: size, ModTime: time.Now()}, nil
+	if size, mt, ok := f.spool.SizeOf(f.spoolKey(path)); ok {
+		return &s3client.Meta{Size: size, ModTime: mt}, nil
 	}
 	if meta, ok := f.metas.Get(path); ok {
 		return &meta, nil
@@ -107,6 +107,11 @@ func (f *Fs) currentMeta(path string) (*s3client.Meta, error) {
 func (f *Fs) upload(h *handle) int {
 	key := f.spoolKey(h.path)
 	if !f.spool.Exists(key) {
+		return 0
+	}
+	if h.deleted {
+		f.spool.Remove(key)
+		h.spooled = false
 		return 0
 	}
 	entry, err := f.spool.Open(key)
@@ -217,22 +222,40 @@ func (f *Fs) Open(path string, flags int) (int, uint64) {
 			return -fuse.EISDIR, ^uint64(0)
 		}
 	}
+	if write && flags&fuse.O_TRUNC != 0 {
+		if err := f.resetSpool(f.spoolKey(path)); err != nil {
+			return -fuse.EIO, ^uint64(0)
+		}
+		f.invalidatePath(path)
+		fh := f.handles.Add(&handle{path: path, write: true, spooled: true})
+		return 0, fh
+	}
 	fh := f.handles.Add(&handle{path: path, write: write})
 	return 0, fh
 }
 
+func (f *Fs) resetSpool(key string) error {
+	f.spool.Remove(key)
+	entry, err := f.spool.Open(key)
+	if err != nil {
+		return err
+	}
+	if err := entry.Truncate(0); err != nil {
+		f.spool.Close(key)
+		return err
+	}
+	f.spool.Close(key)
+	return nil
+}
+
 func (f *Fs) Create(path string, flags int, mode uint32) (int, uint64) {
 	path = f.norm(path)
-	key := f.spoolKey(path)
-	if !f.spool.Exists(key) {
-		if _, err := f.spool.Open(key); err != nil {
-			return -fuse.EIO, ^uint64(0)
-		}
-		f.spool.Close(key)
+	if err := f.resetSpool(f.spoolKey(path)); err != nil {
+		return -fuse.EIO, ^uint64(0)
 	}
 	f.metas.Invalidate(path)
 	f.dirs.Invalidate(f.parentDir(path))
-	fh := f.handles.Add(&handle{path: path, write: true})
+	fh := f.handles.Add(&handle{path: path, write: true, spooled: true})
 	return 0, fh
 }
 
@@ -253,6 +276,18 @@ func (f *Fs) Read(path string, buff []byte, off int64, fh uint64) int {
 	}
 	if int64(len(buff)) > meta.Size-off {
 		buff = buff[:meta.Size-off]
+	}
+	key := f.spoolKey(path)
+	if f.spool.Exists(key) {
+		entry, oerr := f.spool.Open(key)
+		if oerr == nil {
+			n, rerr := entry.ReadAt(buff, off)
+			f.spool.Close(key)
+			if rerr != nil && rerr != io.EOF {
+				return -fuse.EIO
+			}
+			return n
+		}
 	}
 	n := 0
 	for len(buff) > 0 {
@@ -330,23 +365,8 @@ func (f *Fs) Truncate(path string, size int64, fh uint64) int {
 	path = f.norm(path)
 	key := f.spoolKey(path)
 	if !f.spool.Exists(key) {
-		meta, err := f.client.Stat(context.Background(), path)
-		if err == nil && meta.Size > 0 {
-			rc, _, gerr := f.client.GetFull(context.Background(), path)
-			if gerr != nil {
-				return -fuse.EIO
-			}
-			entry, oerr := f.spool.Open(key)
-			if oerr != nil {
-				rc.Close()
-				return -fuse.EIO
-			}
-			_, cerr := io.Copy(entry, rc)
-			rc.Close()
-			f.spool.Close(key)
-			if cerr != nil {
-				return -fuse.EIO
-			}
+		if err := f.prepareSpool(path, key, size); err != 0 {
+			return err
 		}
 	}
 	entry, err := f.spool.Open(key)
@@ -365,12 +385,46 @@ func (f *Fs) Truncate(path string, size int64, fh uint64) int {
 	return 0
 }
 
+func (f *Fs) prepareSpool(path, key string, size int64) int {
+	meta, err := f.client.Stat(context.Background(), path)
+	if err != nil {
+		if err == s3client.ErrNotFound {
+			return 0
+		}
+		return -fuse.EIO
+	}
+	if meta.Size == 0 || size == 0 {
+		return 0
+	}
+	var rc io.ReadCloser
+	var gerr error
+	if size < meta.Size {
+		rc, _, gerr = f.client.GetRange(context.Background(), path, 0, size)
+	} else {
+		rc, _, gerr = f.client.GetFull(context.Background(), path)
+	}
+	if gerr != nil {
+		return -fuse.EIO
+	}
+	entry, oerr := f.spool.Open(key)
+	if oerr != nil {
+		rc.Close()
+		return -fuse.EIO
+	}
+	_, cerr := io.Copy(entry, rc)
+	rc.Close()
+	f.spool.Close(key)
+	if cerr != nil {
+		return -fuse.EIO
+	}
+	return 0
+}
+
 func (f *Fs) Unlink(path string) int {
 	path = f.norm(path)
 	key := f.spoolKey(path)
-	if f.spool.Exists(key) {
-		f.spool.Remove(key)
-	}
+	f.handles.MarkDeleted(path)
+	f.spool.Remove(key)
 	if err := f.client.Remove(context.Background(), path); err != nil {
 		return -fuse.EIO
 	}

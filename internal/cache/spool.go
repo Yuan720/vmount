@@ -8,22 +8,25 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 type Spool struct {
-	dir string
-	mu  sync.Mutex
+	dir  string
+	mu   sync.Mutex
 	open map[string]*spoolEntry
 }
 
 type spoolEntry struct {
-	file *os.File
-	size int64
-	refs int
+	mu      sync.Mutex
+	file    *os.File
+	size    int64
+	refs    int
+	created time.Time
 }
 
 func NewSpool(dir string) (*Spool, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	return &Spool{dir: dir, open: map[string]*spoolEntry{}}, nil
@@ -42,7 +45,7 @@ func (s *Spool) Open(key string) (*spoolEntry, error) {
 		return e, nil
 	}
 	p := s.pathFor(key)
-	f, err := os.OpenFile(p, os.O_CREATE|os.O_RDWR, 0o644)
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -51,24 +54,40 @@ func (s *Spool) Open(key string) (*spoolEntry, error) {
 		f.Close()
 		return nil, err
 	}
-	e := &spoolEntry{file: f, size: info.Size(), refs: 1}
+	e := &spoolEntry{file: f, size: info.Size(), refs: 1, created: time.Now()}
 	s.open[key] = e
 	return e, nil
 }
 
 func (e *spoolEntry) Write(p []byte) (int, error) {
-	return e.WriteAt(p, e.size)
-}
-
-func (e *spoolEntry) WriteAt(p []byte, off int64) (int, error) {
-	n, err := e.file.WriteAt(p, off)
-	if off+int64(len(p)) > e.size {
-		e.size = off + int64(len(p))
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	n, err := e.file.WriteAt(p, e.size)
+	if n > 0 {
+		e.size += int64(n)
 	}
 	return n, err
 }
 
+func (e *spoolEntry) WriteAt(p []byte, off int64) (int, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	n, err := e.file.WriteAt(p, off)
+	if off+int64(n) > e.size {
+		e.size = off + int64(n)
+	}
+	return n, err
+}
+
+func (e *spoolEntry) ReadAt(p []byte, off int64) (int, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.file.ReadAt(p, off)
+}
+
 func (e *spoolEntry) Truncate(size int64) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if err := e.file.Truncate(size); err != nil {
 		return err
 	}
@@ -77,10 +96,14 @@ func (e *spoolEntry) Truncate(size int64) error {
 }
 
 func (e *spoolEntry) Size() int64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	return e.size
 }
 
 func (e *spoolEntry) SeekReader() (io.ReadSeeker, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if _, err := e.file.Seek(0, io.SeekStart); err != nil {
 		return nil, err
 	}
@@ -112,17 +135,20 @@ func (s *Spool) Exists(key string) bool {
 	return err == nil
 }
 
-func (s *Spool) SizeOf(key string) (int64, bool) {
+func (s *Spool) SizeOf(key string) (int64, time.Time, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if e, ok := s.open[key]; ok {
-		return e.size, true
+		e.mu.Lock()
+		size := e.size
+		e.mu.Unlock()
+		return size, e.created, true
 	}
 	info, err := os.Stat(s.pathFor(key))
 	if err != nil {
-		return 0, false
+		return 0, time.Time{}, false
 	}
-	return info.Size(), true
+	return info.Size(), info.ModTime(), true
 }
 
 func (s *Spool) Remove(key string) error {

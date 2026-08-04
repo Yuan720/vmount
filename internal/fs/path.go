@@ -54,7 +54,7 @@ func (c *caseMap) Resolve(path string) string {
 	dir := ""
 	for i, seg := range segs {
 		if i > 0 {
-			dir = strings.Join(segs[:i], "/")
+			dir = strings.Join(out, "/")
 		}
 		if actual, ok := c.Lookup(dir, seg); ok {
 			out = append(out, actual)

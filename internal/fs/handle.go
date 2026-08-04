@@ -8,6 +8,7 @@ type handle struct {
 	path    string
 	write   bool
 	spooled bool
+	deleted bool
 }
 
 type handleTable struct {
@@ -41,4 +42,14 @@ func (t *handleTable) Remove(fh uint64) *handle {
 	h := t.handles[fh]
 	delete(t.handles, fh)
 	return h
+}
+
+func (t *handleTable) MarkDeleted(path string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, h := range t.handles {
+		if h.path == path {
+			h.deleted = true
+		}
+	}
 }
