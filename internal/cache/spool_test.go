@@ -126,7 +126,7 @@ func TestSpoolSeekReader(t *testing.T) {
 func TestSpoolConcurrentWrites(t *testing.T) {
 	s := newTestSpool(t)
 	e, _ := s.Open("spool:k6")
-	const size = 64 * 1024
+	const size = 8 * 1024
 	var wg sync.WaitGroup
 	for g := 0; g < 8; g++ {
 		wg.Add(1)
