@@ -106,6 +106,7 @@ func (f *Fs) currentMeta(path string) (*storage.Meta, error) {
 }
 
 func (f *Fs) upload(h *handle) int {
+	debugf("upload begin %q spooled=%v deleted=%v", h.path, h.spooled, h.deleted)
 	key := f.spoolKey(h.path)
 	if !f.spool.Exists(key) {
 		return 0
@@ -117,6 +118,7 @@ func (f *Fs) upload(h *handle) int {
 	}
 	entry, err := f.spool.Open(key)
 	if err != nil {
+		debugf("upload %q spool open err: %v", h.path, err)
 		return -fuse.EIO
 	}
 	rs, err := entry.SeekReader()
@@ -128,11 +130,13 @@ func (f *Fs) upload(h *handle) int {
 	err = f.client.Put(context.Background(), h.path, rs, size, f.chunkSize)
 	f.spool.Close(key)
 	if err != nil {
+		debugf("upload %q Put err: %v", h.path, err)
 		return -fuse.EIO
 	}
 	f.spool.Remove(key)
 	h.spooled = false
 	f.invalidatePath(h.path)
+	debugf("upload %q done size=%d", h.path, size)
 	return 0
 }
 
@@ -157,7 +161,7 @@ func (f *Fs) Statfs(path string, statfs *fuse.Statfs_t) int {
 }
 
 func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
-	fmt.Fprintf(os.Stderr, "DBG Getattr %q\n", path)
+	debugf("Getattr %q fh=%d", path, fh)
 	path = f.norm(path)
 	if h := f.handles.Get(fh); h != nil {
 		path = h.path
@@ -169,8 +173,10 @@ func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
 	meta, err := f.currentMeta(path)
 	if err != nil {
 		if err == storage.ErrNotFound {
+			debugf("Getattr %q -> ENOENT", path)
 			return -fuse.ENOENT
 		}
+		debugf("Getattr %q err: %v", path, err)
 		return -fuse.EIO
 	}
 	f.fillStat(stat, meta)
@@ -279,16 +285,20 @@ func (f *Fs) resetSpool(key string) error {
 }
 
 func (f *Fs) Create(path string, flags int, mode uint32) (int, uint64) {
+	debugf("Create %q flags=%#o", path, flags)
 	path = f.norm(path)
 	if err := f.resetSpool(f.spoolKey(path)); err != nil {
+		debugf("Create %q resetSpool err: %v", path, err)
 		return -fuse.EIO, ^uint64(0)
 	}
 	if err := f.client.Put(context.Background(), path, strings.NewReader(""), 0, f.chunkSize); err != nil {
+		debugf("Create %q empty Put err: %v", path, err)
 		return -fuse.EIO, ^uint64(0)
 	}
 	f.metas.Invalidate(path)
 	f.dirs.Invalidate(f.parentDir(path))
 	fh := f.handles.Add(&handle{path: path, write: true, spooled: true})
+	debugf("Create %q -> fh=%d", path, fh)
 	return 0, fh
 }
 
@@ -383,8 +393,10 @@ func (f *Fs) Write(path string, buff []byte, off int64, fh uint64) int {
 func (f *Fs) Flush(path string, fh uint64) int {
 	h := f.handles.Get(fh)
 	if h == nil || !h.spooled {
+		debugf("Flush %q fh=%d skip", path, fh)
 		return 0
 	}
+	debugf("Flush %q fh=%d", path, fh)
 	return f.upload(h)
 }
 
@@ -395,8 +407,10 @@ func (f *Fs) Fsync(path string, datasync bool, fh uint64) int {
 func (f *Fs) Release(path string, fh uint64) int {
 	h := f.handles.Remove(fh)
 	if h != nil && h.spooled {
+		debugf("Release %q fh=%d spooled", path, fh)
 		return f.upload(h)
 	}
+	debugf("Release %q fh=%d", path, fh)
 	return 0
 }
 
@@ -442,11 +456,13 @@ func (f *Fs) prepareSpool(path string, size int64) int {
 }
 
 func (f *Fs) Unlink(path string) int {
+	debugf("Unlink %q", path)
 	path = f.norm(path)
 	key := f.spoolKey(path)
 	f.handles.MarkDeleted(path)
 	f.spool.Remove(key)
 	if err := f.client.Remove(context.Background(), path); err != nil {
+		debugf("Unlink %q Remove err: %v", path, err)
 		return -fuse.EIO
 	}
 	f.invalidatePath(path)
@@ -454,10 +470,10 @@ func (f *Fs) Unlink(path string) int {
 }
 
 func (f *Fs) Mkdir(path string, mode uint32) int {
-	fmt.Fprintf(os.Stderr, "DBG Mkdir %q\n", path)
+	debugf("Mkdir %q", path)
 	path = f.norm(path)
 	if err := f.client.PutPlaceholder(context.Background(), path); err != nil {
-		fmt.Fprintf(os.Stderr, "DBG Mkdir %q placeholder err: %v\n", path, err)
+		debugf("Mkdir %q placeholder err: %v", path, err)
 		return -fuse.EIO
 	}
 	f.dirs.Invalidate(f.parentDir(path))
@@ -482,34 +498,42 @@ func (f *Fs) Rmdir(path string) int {
 }
 
 func (f *Fs) Rename(oldpath string, newpath string) int {
+	debugf("Rename %q -> %q", oldpath, newpath)
 	oldpath = f.norm(oldpath)
 	newpath = f.norm(newpath)
 	meta, err := f.client.Stat(context.Background(), oldpath)
 	if err != nil {
 		if err == storage.ErrNotFound {
+			debugf("Rename %q -> %q ENOENT", oldpath, newpath)
 			return -fuse.ENOENT
 		}
+		debugf("Rename %q Stat err: %v", oldpath, err)
 		return -fuse.EIO
 	}
 	if !meta.IsDir {
 		if err := f.client.Copy(context.Background(), oldpath, newpath); err != nil {
+			debugf("Rename %q Copy err: %v", oldpath, err)
 			return -fuse.EIO
 		}
 		if err := f.client.Remove(context.Background(), oldpath); err != nil {
+			debugf("Rename %q Remove err: %v", oldpath, err)
 			return -fuse.EIO
 		}
 	} else {
 		rels, lerr := f.client.ListRecursive(context.Background(), oldpath)
 		if lerr != nil {
+			debugf("Rename dir %q ListRecursive err: %v", oldpath, lerr)
 			return -fuse.EIO
 		}
 		for _, rel := range rels {
 			if rel == "" {
 				if cerr := f.client.CopyPlaceholder(context.Background(), oldpath, newpath); cerr != nil {
+					debugf("Rename dir %q CopyPlaceholder err: %v", oldpath, cerr)
 					return -fuse.EIO
 				}
 			} else {
 				if cerr := f.client.Copy(context.Background(), oldpath+"/"+rel, newpath+"/"+rel); cerr != nil {
+					debugf("Rename dir %q Copy %q err: %v", oldpath, rel, cerr)
 					return -fuse.EIO
 				}
 			}

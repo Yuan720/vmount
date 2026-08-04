@@ -14,6 +14,7 @@ import (
 
 func (c *Client) Stat(ctx context.Context, path string) (*storage.Meta, error) {
 	if c.negHit(path) {
+		debugf("Stat %q -> negcache miss", path)
 		return nil, storage.ErrNotFound
 	}
 	ctx, cancel := c.ctx(ctx)
@@ -26,11 +27,13 @@ func (c *Client) Stat(ctx context.Context, path string) (*storage.Meta, error) {
 	}
 	var er minio.ErrorResponse
 	if !errors.As(err, &er) || er.Code != "NoSuchKey" {
+		debugf("Stat %q statobj err: %v", path, err)
 		return nil, err
 	}
 
 	entries, err := c.List(ctx, path)
 	if err != nil {
+		debugf("Stat %q list err: %v", path, err)
 		return nil, err
 	}
 	if len(entries) > 0 {
@@ -52,6 +55,7 @@ func (c *Client) Stat(ctx context.Context, path string) (*storage.Meta, error) {
 	if errors.As(err, &er) && er.Code == "NoSuchKey" {
 		c.negSet(path)
 	}
+	debugf("Stat %q -> not found", path)
 	return nil, storage.ErrNotFound
 }
 
