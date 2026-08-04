@@ -35,7 +35,7 @@ func (t *uaTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
-const negTTL = 120 * time.Second
+const negTTL = 30 * time.Second
 
 type Client struct {
 	cli            *minio.Client

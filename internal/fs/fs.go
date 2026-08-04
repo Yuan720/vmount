@@ -235,15 +235,11 @@ func (f *Fs) currentMeta(path string) (*storage.Meta, error) {
 	if size, mt, ok := f.spool.SizeOf(f.spoolKey(path)); ok {
 		return &storage.Meta{Size: size, ModTime: mt}, nil
 	}
-	if meta, ok, stale := f.metas.Get(path); ok && !stale {
+	if meta, ok, _ := f.metas.Get(path); ok {
 		return &meta, nil
 	}
-	meta, err := f.client.Stat(context.Background(), path)
-	if err != nil {
-		return nil, err
-	}
-	f.metas.Set(path, *meta)
-	return meta, nil
+	go f.refreshMeta(path)
+	return &storage.Meta{}, nil
 }
 
 func (f *Fs) asyncUpload(key, path string) {
@@ -320,18 +316,9 @@ func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
 	}
 	meta, ok, stale := f.metas.Get(path)
 	if !ok {
-		m, err := f.client.Stat(context.Background(), path)
-		if err != nil {
-			if err == storage.ErrNotFound {
-				debugf("Getattr %q -> ENOENT", path)
-				return -fuse.ENOENT
-			}
-			debugf("Getattr %q err: %v", path, err)
-			return -fuse.EIO
-		}
-		f.metas.Set(path, *m)
-		f.fillStat(stat, m)
-		return 0
+		go f.refreshMeta(path)
+		debugf("Getattr %q -> optimistic ENOENT", path)
+		return -fuse.ENOENT
 	}
 	if stale {
 		go f.refreshMeta(path)
@@ -344,13 +331,7 @@ func (f *Fs) Readdir(path string, fill func(name string, stat *fuse.Stat_t, off 
 	path = f.norm(path)
 	entries, ok, _ := f.dirs.Get(path)
 	if !ok {
-		var err error
-		entries, err = f.client.List(context.Background(), path)
-		if err != nil {
-			return -fuse.EIO
-		}
-		f.dirs.Set(path, entries)
-	} else {
+		entries = nil
 		go f.refreshDir(path)
 	}
 	names := make([]string, 0, len(entries)+2)
@@ -647,13 +628,7 @@ func (f *Fs) Truncate(path string, size int64, fh uint64) int {
 }
 
 func (f *Fs) prepareSpool(path string, size int64) int {
-	meta, err := f.client.Stat(context.Background(), path)
-	if err != nil {
-		if err == storage.ErrNotFound {
-			return 0
-		}
-		return -fuse.EIO
-	}
+	meta, _ := f.currentMeta(path)
 	if meta.Size == 0 || size == 0 {
 		return 0
 	}
@@ -669,23 +644,30 @@ func (f *Fs) Unlink(path string) int {
 	key := f.spoolKey(path)
 	f.handles.MarkDeleted(path)
 	f.spool.Remove(key)
+	go f.doUnlink(path)
+	return 0
+}
+
+func (f *Fs) doUnlink(path string) {
+	f.uploadWG.Add(1)
+	defer f.uploadWG.Done()
 	if err := f.client.Remove(context.Background(), path); err != nil {
 		debugf("Unlink %q Remove err: %v", path, err)
-		return -fuse.EIO
 	}
 	f.invalidatePath(path)
 	go f.refreshDirNow(f.parentDir(path))
-	return 0
 }
 
 func (f *Fs) Mkdir(path string, mode uint32) int {
 	debugf("Mkdir %q", path)
 	path = f.norm(path)
 	if f.usePH {
-		if err := f.client.PutPlaceholder(context.Background(), path); err != nil {
-			debugf("Mkdir %q placeholder err: %v", path, err)
-			return -fuse.EIO
-		}
+		go func() {
+			if err := f.client.PutPlaceholder(context.Background(), path); err != nil {
+				debugf("Mkdir %q placeholder err: %v", path, err)
+			}
+			go f.refreshDirNow(f.parentDir(path))
+		}()
 	}
 	f.dirs.Invalidate(f.parentDir(path))
 	f.metas.Set(path, storage.Meta{IsDir: true, ModTime: time.Now()})
@@ -695,17 +677,15 @@ func (f *Fs) Mkdir(path string, mode uint32) int {
 
 func (f *Fs) Rmdir(path string) int {
 	path = f.norm(path)
-	entries, err := f.client.List(context.Background(), path)
-	if err != nil {
-		return -fuse.EIO
-	}
-	if len(entries) > 0 {
+	if entries, ok, _ := f.dirs.Get(path); ok && len(entries) > 0 {
 		return -fuse.ENOTEMPTY
 	}
 	if f.usePH {
-		if err := f.client.RemovePlaceholder(context.Background(), path); err != nil {
-			return -fuse.EIO
-		}
+		go func() {
+			if err := f.client.RemovePlaceholder(context.Background(), path); err != nil {
+				debugf("Rmdir %q RemovePlaceholder err: %v", path, err)
+			}
+		}()
 	}
 	f.invalidatePath(path)
 	go f.refreshDirNow(f.parentDir(path))
@@ -734,42 +714,40 @@ func (f *Fs) Rename(oldpath string, newpath string) int {
 		debugf("Rename temp %q -> %q async upload started", oldpath, newpath)
 		return 0
 	}
-	meta, err := f.client.Stat(context.Background(), oldpath)
-	if err != nil {
-		if err == storage.ErrNotFound {
-			debugf("Rename %q -> %q ENOENT", oldpath, newpath)
-			return -fuse.ENOENT
-		}
-		debugf("Rename %q Stat err: %v", oldpath, err)
-		return -fuse.EIO
-	}
-	if !meta.IsDir {
+	meta, _ := f.currentMeta(oldpath)
+	f.invalidatePath(oldpath)
+	f.invalidatePath(newpath)
+	go f.doRename(oldpath, newpath, meta.IsDir)
+	return 0
+}
+
+func (f *Fs) doRename(oldpath, newpath string, isDir bool) {
+	f.uploadWG.Add(1)
+	defer f.uploadWG.Done()
+	if !isDir {
 		if err := f.client.Copy(context.Background(), oldpath, newpath); err != nil {
 			debugf("Rename %q Copy err: %v", oldpath, err)
-			return -fuse.EIO
-		}
-		if err := f.client.Remove(context.Background(), oldpath); err != nil {
+		} else if err := f.client.Remove(context.Background(), oldpath); err != nil {
 			debugf("Rename %q Remove err: %v", oldpath, err)
-			return -fuse.EIO
 		}
 	} else {
 		rels, lerr := f.client.ListRecursive(context.Background(), oldpath)
 		if lerr != nil {
 			debugf("Rename dir %q ListRecursive err: %v", oldpath, lerr)
-			return -fuse.EIO
+			return
 		}
 		for _, rel := range rels {
 			if rel == "" {
 				if f.usePH {
 					if cerr := f.client.CopyPlaceholder(context.Background(), oldpath, newpath); cerr != nil {
 						debugf("Rename dir %q CopyPlaceholder err: %v", oldpath, cerr)
-						return -fuse.EIO
+						return
 					}
 				}
 			} else {
 				if cerr := f.client.Copy(context.Background(), oldpath+"/"+rel, newpath+"/"+rel); cerr != nil {
 					debugf("Rename dir %q Copy %q err: %v", oldpath, rel, cerr)
-					return -fuse.EIO
+					return
 				}
 			}
 		}
@@ -783,11 +761,8 @@ func (f *Fs) Rename(oldpath string, newpath string) int {
 			}
 		}
 	}
-	f.invalidatePath(oldpath)
-	f.invalidatePath(newpath)
 	go f.refreshDirNow(f.parentDir(oldpath))
 	go f.refreshDirNow(f.parentDir(newpath))
-	return 0
 }
 
 func (f *Fs) Utimens(path string, tmsp []fuse.Timespec) int {
