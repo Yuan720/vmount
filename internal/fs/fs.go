@@ -226,6 +226,11 @@ func (f *Fs) Open(path string, flags int) (int, uint64) {
 		if meta.IsDir {
 			return -fuse.EISDIR, ^uint64(0)
 		}
+		if flags&fuse.O_TRUNC == 0 && meta.Size > 0 {
+			if rc := f.loadToSpool(path, meta.Size); rc != 0 {
+				return rc, ^uint64(0)
+			}
+		}
 	}
 	if write && flags&fuse.O_TRUNC != 0 {
 		if err := f.resetSpool(f.spoolKey(path)); err != nil {
@@ -237,6 +242,26 @@ func (f *Fs) Open(path string, flags int) (int, uint64) {
 	}
 	fh := f.handles.Add(&handle{path: path, write: write})
 	return 0, fh
+}
+
+func (f *Fs) loadToSpool(path string, size int64) int {
+	rc, _, gerr := f.client.GetRange(context.Background(), path, 0, size)
+	if gerr != nil {
+		return -fuse.EIO
+	}
+	key := f.spoolKey(path)
+	entry, oerr := f.spool.Open(key)
+	if oerr != nil {
+		rc.Close()
+		return -fuse.EIO
+	}
+	_, cerr := io.Copy(entry, rc)
+	rc.Close()
+	f.spool.Close(key)
+	if cerr != nil {
+		return -fuse.EIO
+	}
+	return 0
 }
 
 func (f *Fs) resetSpool(key string) error {
@@ -371,7 +396,7 @@ func (f *Fs) Truncate(path string, size int64, fh uint64) int {
 	path = f.norm(path)
 	key := f.spoolKey(path)
 	if !f.spool.Exists(key) {
-		if err := f.prepareSpool(path, key, size); err != 0 {
+		if err := f.prepareSpool(path, size); err != 0 {
 			return err
 		}
 	}
@@ -391,7 +416,7 @@ func (f *Fs) Truncate(path string, size int64, fh uint64) int {
 	return 0
 }
 
-func (f *Fs) prepareSpool(path, key string, size int64) int {
+func (f *Fs) prepareSpool(path string, size int64) int {
 	meta, err := f.client.Stat(context.Background(), path)
 	if err != nil {
 		if err == s3client.ErrNotFound {
@@ -402,28 +427,10 @@ func (f *Fs) prepareSpool(path, key string, size int64) int {
 	if meta.Size == 0 || size == 0 {
 		return 0
 	}
-	var rc io.ReadCloser
-	var gerr error
 	if size < meta.Size {
-		rc, _, gerr = f.client.GetRange(context.Background(), path, 0, size)
-	} else {
-		rc, _, gerr = f.client.GetFull(context.Background(), path)
+		return f.loadToSpool(path, size)
 	}
-	if gerr != nil {
-		return -fuse.EIO
-	}
-	entry, oerr := f.spool.Open(key)
-	if oerr != nil {
-		rc.Close()
-		return -fuse.EIO
-	}
-	_, cerr := io.Copy(entry, rc)
-	rc.Close()
-	f.spool.Close(key)
-	if cerr != nil {
-		return -fuse.EIO
-	}
-	return 0
+	return f.loadToSpool(path, meta.Size)
 }
 
 func (f *Fs) Unlink(path string) int {
