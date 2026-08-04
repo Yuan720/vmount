@@ -160,3 +160,14 @@ func (s *Spool) Remove(key string) error {
 	s.mu.Unlock()
 	return os.Remove(s.pathFor(key))
 }
+
+func (s *Spool) Move(oldKey, newKey string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if e, ok := s.open[oldKey]; ok {
+		delete(s.open, oldKey)
+		s.open[newKey] = e
+		return nil
+	}
+	return os.Rename(s.pathFor(oldKey), s.pathFor(newKey))
+}

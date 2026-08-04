@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Yuan720/vmount/internal/cache"
@@ -27,6 +28,7 @@ type Fs struct {
 	chunkSize int64
 	exclude   map[string]bool
 	usePH     bool
+	uploadWG  sync.WaitGroup
 }
 
 func New(client storage.Backend, cfg *config.Config) (*Fs, error) {
@@ -172,10 +174,40 @@ func (f *Fs) upload(h *handle) int {
 	return 0
 }
 
+func (f *Fs) asyncUpload(key, path string) {
+	f.uploadWG.Add(1)
+	defer f.uploadWG.Done()
+	entry, err := f.spool.Open(key)
+	if err != nil {
+		debugf("asyncUpload %q open err: %v", path, err)
+		return
+	}
+	rs, err := entry.SeekReader()
+	if err != nil {
+		f.spool.Close(key)
+		debugf("asyncUpload %q seek err: %v", path, err)
+		return
+	}
+	size := entry.Size()
+	err = f.client.Put(context.Background(), path, rs, size, f.chunkSize)
+	f.spool.Close(key)
+	if err != nil {
+		debugf("asyncUpload %q Put err: %v (spool kept)", path, err)
+		return
+	}
+	f.spool.Remove(key)
+	f.invalidatePath(path)
+	debugf("asyncUpload %q done size=%d", path, size)
+}
+
 func (f *Fs) Init() {
 	if r := mapUid0ToCurrentUser(); r != 0 {
 		fmt.Fprintf(os.Stderr, "winfsp uidmap init failed: %d\n", r)
 	}
+}
+
+func (f *Fs) WaitUploads() {
+	f.uploadWG.Wait()
 }
 
 func (f *Fs) Statfs(path string, statfs *fuse.Statfs_t) int {
@@ -549,26 +581,15 @@ func (f *Fs) Rename(oldpath string, newpath string) int {
 			debugf("Rename temp %q no spool", oldpath)
 			return -fuse.ENOENT
 		}
-		entry, err := f.spool.Open(key)
-		if err != nil {
+		newKey := f.spoolKey(newpath)
+		if err := f.spool.Move(key, newKey); err != nil {
+			debugf("Rename temp %q spool move err: %v", oldpath, err)
 			return -fuse.EIO
 		}
-		rs, rerr := entry.SeekReader()
-		if rerr != nil {
-			f.spool.Close(key)
-			return -fuse.EIO
-		}
-		size := entry.Size()
-		perr := f.client.Put(context.Background(), newpath, rs, size, f.chunkSize)
-		f.spool.Close(key)
-		if perr != nil {
-			debugf("Rename temp %q Put err: %v", oldpath, perr)
-			return -fuse.EIO
-		}
-		f.spool.Remove(key)
 		f.invalidatePath(oldpath)
 		f.invalidatePath(newpath)
-		debugf("Rename temp %q -> %q done size=%d", oldpath, newpath, size)
+		go f.asyncUpload(newKey, newpath)
+		debugf("Rename temp %q -> %q async upload started", oldpath, newpath)
 		return 0
 	}
 	meta, err := f.client.Stat(context.Background(), oldpath)

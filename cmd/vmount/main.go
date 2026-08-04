@@ -43,7 +43,9 @@ func main() {
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sig
+		fsys.WaitUploads()
 		host.Unmount()
+		os.Exit(0)
 	}()
 
 	fmt.Printf("mounting %s -> s3://%s/%s\n", cfg.Mount, cfg.Bucket, cfg.Prefix)
