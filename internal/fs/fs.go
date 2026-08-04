@@ -60,6 +60,11 @@ func (f *Fs) refreshDir(path string) {
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
 		names = append(names, e.Name)
+		f.metas.Set(joinPath(path, e.Name), storage.Meta{
+			Size:    e.Size,
+			ModTime: e.ModTime,
+			IsDir:   e.IsDir,
+		})
 	}
 	f.cm.Update(path, names)
 	debugf("refreshDir %q -> %d entries", path, len(entries))
@@ -135,6 +140,13 @@ func (f *Fs) parentDir(path string) string {
 		return ""
 	}
 	return path[:idx]
+}
+
+func joinPath(dir, name string) string {
+	if dir == "" {
+		return name
+	}
+	return dir + "/" + name
 }
 
 func (f *Fs) fillStat(stat *fuse.Stat_t, meta *storage.Meta) {
@@ -287,6 +299,11 @@ func (f *Fs) Readdir(path string, fill func(name string, stat *fuse.Stat_t, off 
 	names = append(names, ".", "..")
 	for _, e := range entries {
 		names = append(names, e.Name)
+		f.metas.Set(joinPath(path, e.Name), storage.Meta{
+			Size:    e.Size,
+			ModTime: e.ModTime,
+			IsDir:   e.IsDir,
+		})
 	}
 	f.cm.Update(path, names[2:])
 	for _, n := range names {
