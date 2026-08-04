@@ -63,6 +63,7 @@ func (c *Client) GetRange(ctx context.Context, path string, off, size int64) (io
 	var obj *minio.Object
 	var err error
 	ctx, _ = c.ctx(ctx)
+	debugf("GetRange %q off=%d size=%d", path, off, size)
 	err = retry(func() error {
 		opts := minio.GetObjectOptions{}
 		opts.SetRange(off, off+size-1)
@@ -70,6 +71,7 @@ func (c *Client) GetRange(ctx context.Context, path string, off, size int64) (io
 		return err
 	}, 3)
 	if err != nil {
+		debugf("GetRange %q err: %v", path, err)
 		return nil, 0, err
 	}
 	return obj, size, nil

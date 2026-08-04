@@ -344,6 +344,7 @@ func (f *Fs) Read(path string, buff []byte, off int64, fh uint64) int {
 		if err == storage.ErrNotFound {
 			return 0
 		}
+		debugf("Read %q off=%d meta err: %v", path, off, err)
 		return -fuse.EIO
 	}
 	if off >= meta.Size {
@@ -376,6 +377,7 @@ func (f *Fs) Read(path string, buff []byte, off int64, fh uint64) int {
 			}
 		rc, _, gerr := f.client.GetRange(context.Background(), path, blkStart, size)
 		if gerr != nil {
+			debugf("Read %q off=%d blk=%d GetRange err: %v", path, off, blkStart, gerr)
 			if n > 0 {
 				return n
 			}
@@ -384,6 +386,7 @@ func (f *Fs) Read(path string, buff []byte, off int64, fh uint64) int {
 		data, gerr = io.ReadAll(io.LimitReader(rc, size))
 		rc.Close()
 		if gerr != nil {
+			debugf("Read %q off=%d blk=%d readall err: %v", path, off, blkStart, gerr)
 			if n > 0 {
 				return n
 			}
