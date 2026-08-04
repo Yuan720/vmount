@@ -17,8 +17,8 @@ type DirCache struct {
 }
 
 type dirEntry struct {
-	entries   []storage.Entry
-	fetchedAt time.Time
+	Entries   []storage.Entry `json:"entries"`
+	FetchedAt time.Time       `json:"fetched_at"`
 }
 
 func NewDirCache(ttl time.Duration) *DirCache {
@@ -35,13 +35,13 @@ func (d *DirCache) Get(path string) ([]storage.Entry, bool, bool) {
 	if !ok {
 		return nil, false, false
 	}
-	return e.entries, true, d.ttl > 0 && time.Since(e.fetchedAt) > d.ttl
+	return e.Entries, true, d.ttl > 0 && time.Since(e.FetchedAt) > d.ttl
 }
 
 func (d *DirCache) Set(path string, entries []storage.Entry) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.dirs[path] = dirEntry{entries: entries, fetchedAt: time.Now()}
+	d.dirs[path] = dirEntry{Entries: entries, FetchedAt: time.Now()}
 }
 
 func (d *DirCache) Invalidate(path string) {
@@ -92,8 +92,8 @@ type MetaCache struct {
 }
 
 type metaEntry struct {
-	meta      storage.Meta
-	fetchedAt time.Time
+	Meta      storage.Meta `json:"meta"`
+	FetchedAt time.Time    `json:"fetched_at"`
 }
 
 func NewMetaCache(ttl time.Duration) *MetaCache {
@@ -109,13 +109,13 @@ func (m *MetaCache) Get(path string) (storage.Meta, bool, bool) {
 	if !ok {
 		return storage.Meta{}, false, false
 	}
-	return e.meta, true, m.ttl > 0 && time.Since(e.fetchedAt) > m.ttl
+	return e.Meta, true, m.ttl > 0 && time.Since(e.FetchedAt) > m.ttl
 }
 
 func (m *MetaCache) Set(path string, meta storage.Meta) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.meta[path] = metaEntry{meta: meta, fetchedAt: time.Now()}
+	m.meta[path] = metaEntry{Meta: meta, FetchedAt: time.Now()}
 }
 
 func (m *MetaCache) Invalidate(path string) {
