@@ -22,48 +22,71 @@ func (c *Client) Stat(ctx context.Context, path string) (*storage.Meta, error) {
 	}
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
-	k := c.key(path)
-	info, err := c.cli.StatObject(ctx, c.bucket, k, minio.StatObjectOptions{})
-	if err == nil {
-		c.negRemove(path)
-		return &storage.Meta{Size: info.Size, ModTime: info.LastModified}, nil
+
+	type res struct {
+		meta *storage.Meta
+		err  error
+	}
+	ch := make(chan res, 2)
+
+	go func() {
+		info, err := c.cli.StatObject(ctx, c.bucket, c.key(path), minio.StatObjectOptions{})
+		if err == nil {
+			ch <- res{meta: &storage.Meta{Size: info.Size, ModTime: info.LastModified}}
+			return
+		}
+		ch <- res{err: err}
+	}()
+	go func() {
+		entries, err := c.List(ctx, path)
+		if err != nil {
+			ch <- res{err: err}
+			return
+		}
+		if len(entries) > 0 {
+			var newest time.Time
+			for _, e := range entries {
+				if e.ModTime.After(newest) {
+					newest = e.ModTime
+				}
+			}
+			ch <- res{meta: &storage.Meta{Size: 0, ModTime: newest, IsDir: true}}
+			return
+		}
+		if c.usePlaceholder {
+			ph, err := c.cli.StatObject(ctx, c.bucket, c.dirPrefix(path), minio.StatObjectOptions{})
+			if err == nil {
+				ch <- res{meta: &storage.Meta{Size: 0, ModTime: ph.LastModified, IsDir: true}}
+				return
+			}
+			ch <- res{err: err}
+			return
+		}
+		ch <- res{err: storage.ErrNotFound}
+	}()
+
+	fileRes := <-ch
+	dirRes := <-ch
+	for _, r := range []res{fileRes, dirRes} {
+		if r.meta != nil {
+			c.negRemove(path)
+			return r.meta, nil
+		}
 	}
 	var er minio.ErrorResponse
-	if !errors.As(err, &er) || er.Code != "NoSuchKey" {
-		debugf("Stat %q statobj err: %v", path, err)
-		return nil, err
-	}
-
-	entries, err := c.List(ctx, path)
-	if err != nil {
-		debugf("Stat %q list err: %v", path, err)
-		return nil, err
-	}
-	if len(entries) > 0 {
-		c.negRemove(path)
-		var newest time.Time
-		for _, e := range entries {
-			if e.ModTime.After(newest) {
-				newest = e.ModTime
-			}
-		}
-		return &storage.Meta{Size: 0, ModTime: newest, IsDir: true}, nil
-	}
-
-	if c.usePlaceholder {
-		placeholder, err := c.cli.StatObject(ctx, c.bucket, c.dirPrefix(path), minio.StatObjectOptions{})
-		if err == nil {
-			c.negRemove(path)
-			return &storage.Meta{Size: 0, ModTime: placeholder.LastModified, IsDir: true}, nil
-		}
-		if errors.As(err, &er) && er.Code == "NoSuchKey" {
-			c.negSet(path)
-		}
-	} else {
+	fileMissing := errors.As(fileRes.err, &er) && er.Code == "NoSuchKey"
+	dirMissing := dirRes.err == storage.ErrNotFound ||
+		(errors.As(dirRes.err, &er) && er.Code == "NoSuchKey")
+	if fileMissing && dirMissing {
 		c.negSet(path)
+		debugf("Stat %q -> not found", path)
+		return nil, storage.ErrNotFound
 	}
-	debugf("Stat %q -> not found", path)
-	return nil, storage.ErrNotFound
+	debugf("Stat %q err: %v / %v", path, fileRes.err, dirRes.err)
+	if fileRes.err != nil {
+		return nil, fileRes.err
+	}
+	return nil, dirRes.err
 }
 
 func (c *Client) GetRange(ctx context.Context, path string, off, size int64) (io.ReadCloser, int64, error) {
