@@ -21,9 +21,14 @@ func TestDirCacheTTL(t *testing.T) {
 	d := NewDirCache(time.Millisecond)
 	d.Set("x", []storage.Entry{})
 	time.Sleep(5 * time.Millisecond)
-	if _, ok, _ := d.Get("x"); ok {
-		t.Fatalf("expired entry should miss")
+	_, ok, stale := d.Get("x")
+	if !ok {
+		t.Fatalf("expired entry should still be returned (stale)")
 	}
+	if !stale {
+		t.Fatalf("expired entry should be marked stale")
+	}
+}
 }
 
 func TestDirCacheInvalidateRootOnly(t *testing.T) {

@@ -2,6 +2,7 @@ package s3client
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
