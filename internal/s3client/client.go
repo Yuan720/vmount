@@ -15,7 +15,9 @@ import (
 // uaTransport overrides the User-Agent so gateways that route by client
 // type (e.g. the Hugging Face S3 gateway returns 302 redirects to CDN for
 // unknown clients, but proxies directly for botocore-style clients) serve
-// data without redirects that minio-go does not follow.
+// data without redirects that minio-go does not follow. It also injects a
+// valid Last-Modified header when the gateway proxy omits it, since
+// minio-go fails to parse an empty Last-Modified on GetObject responses.
 type uaTransport struct {
 	base http.RoundTripper
 	ua   string
@@ -25,7 +27,11 @@ func (t *uaTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	if t.ua != "" {
 		r.Header.Set("User-Agent", t.ua)
 	}
-	return t.base.RoundTrip(r)
+	resp, err := t.base.RoundTrip(r)
+	if err == nil && resp.Header.Get("Last-Modified") == "" {
+		resp.Header.Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+	}
+	return resp, err
 }
 
 const negTTL = 10 * time.Second
