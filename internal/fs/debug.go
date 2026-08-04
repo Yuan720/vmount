@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const debugLogPath = "C:\\vmount-debug.log"
+const debugLogPath = "C:\\Users\\Mhtly\\Documents\\vmount\\vmount-debug.log"
 
 var (
 	debugMu sync.Mutex
