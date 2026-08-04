@@ -47,10 +47,12 @@ func (c *Client) Stat(ctx context.Context, path string) (*storage.Meta, error) {
 		return &storage.Meta{Size: 0, ModTime: newest, IsDir: true}, nil
 	}
 
-	placeholder, err := c.cli.StatObject(ctx, c.bucket, c.dirPrefix(path), minio.StatObjectOptions{})
-	if err == nil {
-		c.negRemove(path)
-		return &storage.Meta{Size: 0, ModTime: placeholder.LastModified, IsDir: true}, nil
+	if c.usePlaceholder {
+		placeholder, err := c.cli.StatObject(ctx, c.bucket, c.dirPrefix(path), minio.StatObjectOptions{})
+		if err == nil {
+			c.negRemove(path)
+			return &storage.Meta{Size: 0, ModTime: placeholder.LastModified, IsDir: true}, nil
+		}
 	}
 	if errors.As(err, &er) && er.Code == "NoSuchKey" {
 		c.negSet(path)

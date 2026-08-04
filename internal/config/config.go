@@ -21,6 +21,7 @@ type Config struct {
 	UseTLS            bool     `json:"use_tls"`
 	Region            string   `json:"region"`
 	UserAgent         string   `json:"user_agent"`
+	UsePlaceholder    bool     `json:"use_placeholder"`
 	ExcludeSuffixes   []string `json:"exclude_suffixes"`
 }
 
@@ -34,6 +35,7 @@ func Default() Config {
 		ChunkSize:          8 * 1024 * 1024,
 		Region:             "us-east-1",
 		UserAgent:          "botocore/1.34.0",
+		UsePlaceholder:     true,
 		ExcludeSuffixes: []string{
 			".crdownload", ".part", ".partial", ".download", ".tmp", ".temp", ".aria2",
 		},

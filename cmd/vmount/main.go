@@ -25,7 +25,7 @@ func main() {
 	}
 
 	client, err := s3client.New(cfg.Endpoint, cfg.Bucket, cfg.Prefix,
-		cfg.AccessKey, cfg.SecretKey, cfg.UseTLS, 30*time.Second, cfg.Region, cfg.UserAgent)
+		cfg.AccessKey, cfg.SecretKey, cfg.UseTLS, 30*time.Second, cfg.Region, cfg.UserAgent, cfg.UsePlaceholder)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "s3 client:", err)
 		os.Exit(1)

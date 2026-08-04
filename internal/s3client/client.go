@@ -37,17 +37,18 @@ func (t *uaTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 const negTTL = 10 * time.Second
 
 type Client struct {
-	cli      *minio.Client
-	bucket   string
-	prefix   string
-	timeout  time.Duration
-	negMu    sync.Mutex
-	negCache map[string]time.Time
+	cli            *minio.Client
+	bucket         string
+	prefix         string
+	timeout        time.Duration
+	usePlaceholder bool
+	negMu          sync.Mutex
+	negCache       map[string]time.Time
 }
 
 var _ storage.Backend = (*Client)(nil)
 
-func New(endpoint, bucket, prefix, accessKey, secretKey string, useTLS bool, timeout time.Duration, region, userAgent string) (*Client, error) {
+func New(endpoint, bucket, prefix, accessKey, secretKey string, useTLS bool, timeout time.Duration, region, userAgent string, usePlaceholder bool) (*Client, error) {
 	endpoint = strings.TrimPrefix(endpoint, "http://")
 	endpoint = strings.TrimPrefix(endpoint, "https://")
 	endpoint = strings.TrimSuffix(endpoint, "/")
@@ -68,11 +69,12 @@ func New(endpoint, bucket, prefix, accessKey, secretKey string, useTLS bool, tim
 		prefix += "/"
 	}
 	return &Client{
-		cli:      cli,
-		bucket:   bucket,
-		prefix:   prefix,
-		timeout:  timeout,
-		negCache: map[string]time.Time{},
+		cli:            cli,
+		bucket:         bucket,
+		prefix:         prefix,
+		timeout:        timeout,
+		usePlaceholder: usePlaceholder,
+		negCache:       map[string]time.Time{},
 	}, nil
 }
 

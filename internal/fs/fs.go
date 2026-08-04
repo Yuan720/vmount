@@ -26,6 +26,7 @@ type Fs struct {
 	handles   *handleTable
 	chunkSize int64
 	exclude   map[string]bool
+	usePH     bool
 }
 
 func New(client storage.Backend, cfg *config.Config) (*Fs, error) {
@@ -48,6 +49,7 @@ func New(client storage.Backend, cfg *config.Config) (*Fs, error) {
 		handles:   newHandleTable(),
 		chunkSize: chunk,
 		exclude:   exclude,
+		usePH:     cfg.UsePlaceholder,
 	}, nil
 }
 
@@ -507,9 +509,11 @@ func (f *Fs) Unlink(path string) int {
 func (f *Fs) Mkdir(path string, mode uint32) int {
 	debugf("Mkdir %q", path)
 	path = f.norm(path)
-	if err := f.client.PutPlaceholder(context.Background(), path); err != nil {
-		debugf("Mkdir %q placeholder err: %v", path, err)
-		return -fuse.EIO
+	if f.usePH {
+		if err := f.client.PutPlaceholder(context.Background(), path); err != nil {
+			debugf("Mkdir %q placeholder err: %v", path, err)
+			return -fuse.EIO
+		}
 	}
 	f.dirs.Invalidate(f.parentDir(path))
 	f.metas.Invalidate(path)
@@ -525,8 +529,10 @@ func (f *Fs) Rmdir(path string) int {
 	if len(entries) > 0 {
 		return -fuse.ENOTEMPTY
 	}
-	if err := f.client.RemovePlaceholder(context.Background(), path); err != nil {
-		return -fuse.EIO
+	if f.usePH {
+		if err := f.client.RemovePlaceholder(context.Background(), path); err != nil {
+			return -fuse.EIO
+		}
 	}
 	f.invalidatePath(path)
 	return 0
@@ -590,9 +596,11 @@ func (f *Fs) Rename(oldpath string, newpath string) int {
 		}
 		for _, rel := range rels {
 			if rel == "" {
-				if cerr := f.client.CopyPlaceholder(context.Background(), oldpath, newpath); cerr != nil {
-					debugf("Rename dir %q CopyPlaceholder err: %v", oldpath, cerr)
-					return -fuse.EIO
+				if f.usePH {
+					if cerr := f.client.CopyPlaceholder(context.Background(), oldpath, newpath); cerr != nil {
+						debugf("Rename dir %q CopyPlaceholder err: %v", oldpath, cerr)
+						return -fuse.EIO
+					}
 				}
 			} else {
 				if cerr := f.client.Copy(context.Background(), oldpath+"/"+rel, newpath+"/"+rel); cerr != nil {
@@ -603,7 +611,9 @@ func (f *Fs) Rename(oldpath string, newpath string) int {
 		}
 		for _, rel := range rels {
 			if rel == "" {
-				f.client.RemovePlaceholder(context.Background(), oldpath)
+				if f.usePH {
+					f.client.RemovePlaceholder(context.Background(), oldpath)
+				}
 			} else {
 				f.client.Remove(context.Background(), oldpath+"/"+rel)
 			}
