@@ -1,6 +1,8 @@
 ﻿package cache
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -63,6 +65,26 @@ func (d *DirCache) InvalidateAll() {
 	d.dirs = map[string]dirEntry{}
 }
 
+func (d *DirCache) Save(path string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	data, err := json.Marshal(d.dirs)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
+}
+
+func (d *DirCache) Load(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return json.Unmarshal(data, &d.dirs)
+}
+
 type MetaCache struct {
 	mu   sync.Mutex
 	meta map[string]metaEntry
@@ -100,4 +122,24 @@ func (m *MetaCache) Invalidate(path string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.meta, path)
+}
+
+func (m *MetaCache) Save(path string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	data, err := json.Marshal(m.meta)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
+}
+
+func (m *MetaCache) Load(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return json.Unmarshal(data, &m.meta)
 }

@@ -44,6 +44,7 @@ func main() {
 	go func() {
 		<-sig
 		fsys.WaitUploads()
+		fsys.SaveCache()
 		host.Unmount()
 		os.Exit(0)
 	}()

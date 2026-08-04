@@ -31,12 +31,16 @@ type Fs struct {
 	uploadWG  sync.WaitGroup
 	uploadMx  sync.Map
 	refreshMx sync.Map
+	refreshAt sync.Map
+	cacheDir  string
 }
 
 func (f *Fs) uploadMuFor(path string) *sync.Mutex {
 	mu, _ := f.uploadMx.LoadOrStore(path, &sync.Mutex{})
 	return mu.(*sync.Mutex)
 }
+
+const refreshMinInterval = 5 * time.Second
 
 func (f *Fs) beginRefresh(path string) bool {
 	_, loaded := f.refreshMx.LoadOrStore(path, struct{}{})
@@ -47,11 +51,38 @@ func (f *Fs) endRefresh(path string) {
 	f.refreshMx.Delete(path)
 }
 
+// canRefresh applies a per-path throttle (used by open/Readdir-triggered
+// refreshes). Write-triggered refreshes bypass it via refreshDirNow.
+func (f *Fs) canRefresh(path string) bool {
+	if t, ok := f.refreshAt.Load(path); ok {
+		if ts, ok := t.(time.Time); ok && time.Since(ts) < refreshMinInterval {
+			return false
+		}
+	}
+	f.refreshAt.Store(path, time.Now())
+	return true
+}
+
 func (f *Fs) refreshDir(path string) {
+	if !f.canRefresh(path) {
+		return
+	}
 	if !f.beginRefresh(path) {
 		return
 	}
 	defer f.endRefresh(path)
+	f.doRefreshDir(path)
+}
+
+func (f *Fs) refreshDirNow(path string) {
+	if !f.beginRefresh(path) {
+		return
+	}
+	defer f.endRefresh(path)
+	f.doRefreshDir(path)
+}
+
+func (f *Fs) doRefreshDir(path string) {
 	entries, err := f.client.List(context.Background(), path)
 	if err != nil {
 		return
@@ -67,19 +98,28 @@ func (f *Fs) refreshDir(path string) {
 		})
 	}
 	f.cm.Update(path, names)
+	f.saveCache()
 	debugf("refreshDir %q -> %d entries", path, len(entries))
 }
 
 func (f *Fs) refreshMeta(path string) {
+	if !f.canRefresh(path) {
+		return
+	}
 	if !f.beginRefresh(path) {
 		return
 	}
 	defer f.endRefresh(path)
+	f.doRefreshMeta(path)
+}
+
+func (f *Fs) doRefreshMeta(path string) {
 	meta, err := f.client.Stat(context.Background(), path)
 	if err != nil {
 		return
 	}
 	f.metas.Set(path, *meta)
+	f.saveCache()
 	debugf("refreshMeta %q size=%d isdir=%v", path, meta.Size, meta.IsDir)
 }
 
@@ -93,7 +133,7 @@ func New(client storage.Backend, cfg *config.Config) (*Fs, error) {
 		chunk = 8 * 1024 * 1024
 	}
 	exclude := suffixSet(cfg.ExcludeSuffixes)
-	return &Fs{
+	f := &Fs{
 		client:    client,
 		blocks:    cache.NewBlockCache(cfg.ReadCacheMB * 1024 * 1024),
 		dirs:      cache.NewDirCache(time.Duration(cfg.ListTTLSeconds) * time.Second),
@@ -104,7 +144,20 @@ func New(client storage.Backend, cfg *config.Config) (*Fs, error) {
 		chunkSize: chunk,
 		exclude:   exclude,
 		usePH:     cfg.UsePlaceholder,
-	}, nil
+		cacheDir:  cfg.CacheDir,
+	}
+	f.loadCache()
+	return f, nil
+}
+
+func (f *Fs) loadCache() {
+	f.dirs.Load(filepath.Join(f.cacheDir, "dircache.json"))
+	f.metas.Load(filepath.Join(f.cacheDir, "metacache.json"))
+}
+
+func (f *Fs) saveCache() {
+	f.dirs.Save(filepath.Join(f.cacheDir, "dircache.json"))
+	f.metas.Save(filepath.Join(f.cacheDir, "metacache.json"))
 }
 
 func suffixSet(suffixes []string) map[string]bool {
@@ -219,6 +272,7 @@ func (f *Fs) asyncUpload(key, path string) {
 	}
 	f.spool.Remove(key)
 	f.invalidatePath(path)
+	go f.refreshDirNow(f.parentDir(path))
 	debugf("asyncUpload %q done size=%d", path, size)
 }
 
@@ -230,6 +284,10 @@ func (f *Fs) Init() {
 
 func (f *Fs) WaitUploads() {
 	f.uploadWG.Wait()
+}
+
+func (f *Fs) SaveCache() {
+	f.saveCache()
 }
 
 func (f *Fs) Statfs(path string, statfs *fuse.Statfs_t) int {
@@ -284,7 +342,7 @@ func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
 
 func (f *Fs) Readdir(path string, fill func(name string, stat *fuse.Stat_t, off int64) bool, off int64, fh uint64) int {
 	path = f.norm(path)
-	entries, ok, stale := f.dirs.Get(path)
+	entries, ok, _ := f.dirs.Get(path)
 	if !ok {
 		var err error
 		entries, err = f.client.List(context.Background(), path)
@@ -292,7 +350,7 @@ func (f *Fs) Readdir(path string, fill func(name string, stat *fuse.Stat_t, off 
 			return -fuse.EIO
 		}
 		f.dirs.Set(path, entries)
-	} else if stale {
+	} else {
 		go f.refreshDir(path)
 	}
 	names := make([]string, 0, len(entries)+2)
@@ -408,6 +466,7 @@ func (f *Fs) Create(path string, flags int, mode uint32) (int, uint64) {
 	f.dirs.Invalidate(f.parentDir(path))
 	fh := f.handles.Add(&handle{path: path, write: true, spooled: true})
 	debugf("Create %q -> fh=%d", path, fh)
+	go f.refreshDirNow(f.parentDir(path))
 	return 0, fh
 }
 
@@ -601,6 +660,7 @@ func (f *Fs) Unlink(path string) int {
 		return -fuse.EIO
 	}
 	f.invalidatePath(path)
+	go f.refreshDirNow(f.parentDir(path))
 	return 0
 }
 
@@ -615,6 +675,7 @@ func (f *Fs) Mkdir(path string, mode uint32) int {
 	}
 	f.dirs.Invalidate(f.parentDir(path))
 	f.metas.Set(path, storage.Meta{IsDir: true, ModTime: time.Now()})
+	go f.refreshDirNow(f.parentDir(path))
 	return 0
 }
 
@@ -633,6 +694,7 @@ func (f *Fs) Rmdir(path string) int {
 		}
 	}
 	f.invalidatePath(path)
+	go f.refreshDirNow(f.parentDir(path))
 	return 0
 }
 
@@ -654,6 +716,7 @@ func (f *Fs) Rename(oldpath string, newpath string) int {
 		f.invalidatePath(oldpath)
 		f.invalidatePath(newpath)
 		go f.asyncUpload(newKey, newpath)
+		go f.refreshDirNow(f.parentDir(newpath))
 		debugf("Rename temp %q -> %q async upload started", oldpath, newpath)
 		return 0
 	}
@@ -708,6 +771,8 @@ func (f *Fs) Rename(oldpath string, newpath string) int {
 	}
 	f.invalidatePath(oldpath)
 	f.invalidatePath(newpath)
+	go f.refreshDirNow(f.parentDir(oldpath))
+	go f.refreshDirNow(f.parentDir(newpath))
 	return 0
 }
 
