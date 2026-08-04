@@ -137,6 +137,9 @@ func (f *Fs) upload(h *handle) int {
 }
 
 func (f *Fs) Init() {
+	if r := mapUid0ToCurrentUser(); r != 0 {
+		fmt.Fprintf(os.Stderr, "DBG uidmap init failed: %d\n", r)
+	}
 }
 
 func (f *Fs) Statfs(path string, statfs *fuse.Statfs_t) int {
@@ -154,7 +157,6 @@ func (f *Fs) Statfs(path string, statfs *fuse.Statfs_t) int {
 }
 
 func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
-	fmt.Fprintf(os.Stderr, "DBG Getattr path=%q fh=%d\n", path, fh)
 	path = f.norm(path)
 	if h := f.handles.Get(fh); h != nil {
 		path = h.path
