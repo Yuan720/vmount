@@ -22,7 +22,7 @@ func (c *Client) Stat(ctx context.Context, path string) (*storage.Meta, error) {
 	info, err := c.cli.StatObject(ctx, c.bucket, k, minio.StatObjectOptions{})
 	if err == nil {
 		c.negRemove(path)
-		return &Meta{Size: info.Size, ModTime: info.LastModified}, nil
+		return &storage.Meta{Size: info.Size, ModTime: info.LastModified}, nil
 	}
 	var er minio.ErrorResponse
 	if !errors.As(err, &er) || er.Code != "NoSuchKey" {
@@ -41,13 +41,13 @@ func (c *Client) Stat(ctx context.Context, path string) (*storage.Meta, error) {
 				newest = e.ModTime
 			}
 		}
-		return &Meta{Size: 0, ModTime: newest, IsDir: true}, nil
+		return &storage.Meta{Size: 0, ModTime: newest, IsDir: true}, nil
 	}
 
 	placeholder, err := c.cli.StatObject(ctx, c.bucket, c.dirPrefix(path), minio.StatObjectOptions{})
 	if err == nil {
 		c.negRemove(path)
-		return &Meta{Size: 0, ModTime: placeholder.LastModified, IsDir: true}, nil
+		return &storage.Meta{Size: 0, ModTime: placeholder.LastModified, IsDir: true}, nil
 	}
 	if errors.As(err, &er) && er.Code == "NoSuchKey" {
 		c.negSet(path)
