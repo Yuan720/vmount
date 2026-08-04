@@ -715,8 +715,12 @@ func (f *Fs) Rename(oldpath string, newpath string) int {
 		return 0
 	}
 	meta, _ := f.currentMeta(oldpath)
-	f.invalidatePath(oldpath)
-	f.invalidatePath(newpath)
+	if metaOld, ok, _ := f.metas.Get(oldpath); ok {
+		f.metas.Set(newpath, metaOld)
+	}
+	f.metas.Invalidate(oldpath)
+	f.dirs.Invalidate(f.parentDir(oldpath))
+	f.dirs.Invalidate(f.parentDir(newpath))
 	go f.doRename(oldpath, newpath, meta.IsDir)
 	return 0
 }
