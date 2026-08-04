@@ -157,6 +157,7 @@ func (f *Fs) Statfs(path string, statfs *fuse.Statfs_t) int {
 }
 
 func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
+	fmt.Fprintf(os.Stderr, "DBG Getattr %q\n", path)
 	path = f.norm(path)
 	if h := f.handles.Get(fh); h != nil {
 		path = h.path
@@ -453,8 +454,10 @@ func (f *Fs) Unlink(path string) int {
 }
 
 func (f *Fs) Mkdir(path string, mode uint32) int {
+	fmt.Fprintf(os.Stderr, "DBG Mkdir %q\n", path)
 	path = f.norm(path)
 	if err := f.client.PutPlaceholder(context.Background(), path); err != nil {
+		fmt.Fprintf(os.Stderr, "DBG Mkdir %q placeholder err: %v\n", path, err)
 		return -fuse.EIO
 	}
 	f.dirs.Invalidate(f.parentDir(path))
