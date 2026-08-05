@@ -503,6 +503,11 @@ func (f *Fs) Read(path string, buff []byte, off int64, fh uint64) int {
 			return n
 		}
 	}
+	if f.isExcluded(path) {
+		// Excluded files are never uploaded to S3; reading an empty spool
+		// must return EOF rather than failing against the remote.
+		return 0
+	}
 	n := 0
 	for len(buff) > 0 {
 		blkStart := off / f.chunkSize * f.chunkSize
