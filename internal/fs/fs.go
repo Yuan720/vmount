@@ -245,6 +245,10 @@ func (f *Fs) currentMeta(path string) (*storage.Meta, error) {
 func (f *Fs) asyncUpload(key, path string) {
 	f.uploadWG.Add(1)
 	defer f.uploadWG.Done()
+	if !f.spool.Exists(key) {
+		debugf("asyncUpload %q skipped (spool gone)", path)
+		return
+	}
 	mu := f.uploadMuFor(path)
 	mu.Lock()
 	defer mu.Unlock()
@@ -719,6 +723,19 @@ func (f *Fs) Rename(oldpath string, newpath string) int {
 		f.metas.Set(newpath, metaOld)
 	}
 	f.metas.Invalidate(oldpath)
+	key := f.spoolKey(oldpath)
+	if f.spool.Exists(key) {
+		newKey := f.spoolKey(newpath)
+		if err := f.spool.Move(key, newKey); err == nil {
+			f.dirs.Invalidate(f.parentDir(oldpath))
+			f.dirs.Invalidate(f.parentDir(newpath))
+			go f.asyncUpload(newKey, newpath)
+			go f.refreshDirNow(f.parentDir(oldpath))
+			go f.refreshDirNow(f.parentDir(newpath))
+			debugf("Rename %q -> %q via spool move", oldpath, newpath)
+			return 0
+		}
+	}
 	f.dirs.Invalidate(f.parentDir(oldpath))
 	f.dirs.Invalidate(f.parentDir(newpath))
 	go f.doRename(oldpath, newpath, meta.IsDir)
