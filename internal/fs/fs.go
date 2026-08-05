@@ -729,9 +729,11 @@ func (f *Fs) doRename(oldpath, newpath string, isDir bool) {
 	f.uploadWG.Add(1)
 	defer f.uploadWG.Done()
 	if !isDir {
-		if err := f.client.Copy(context.Background(), oldpath, newpath); err != nil {
-			debugf("Rename %q Copy err: %v", oldpath, err)
-		} else if err := f.client.Remove(context.Background(), oldpath); err != nil {
+		if err := f.copyFile(oldpath, newpath); err != nil {
+			debugf("Rename %q copy err: %v", oldpath, err)
+			return
+		}
+		if err := f.client.Remove(context.Background(), oldpath); err != nil {
 			debugf("Rename %q Remove err: %v", oldpath, err)
 		}
 	} else {
@@ -749,8 +751,8 @@ func (f *Fs) doRename(oldpath, newpath string, isDir bool) {
 					}
 				}
 			} else {
-				if cerr := f.client.Copy(context.Background(), oldpath+"/"+rel, newpath+"/"+rel); cerr != nil {
-					debugf("Rename dir %q Copy %q err: %v", oldpath, rel, cerr)
+				if cerr := f.copyFile(oldpath+"/"+rel, newpath+"/"+rel); cerr != nil {
+					debugf("Rename dir %q copy %q err: %v", oldpath, rel, cerr)
 					return
 				}
 			}
@@ -767,6 +769,26 @@ func (f *Fs) doRename(oldpath, newpath string, isDir bool) {
 	}
 	go f.refreshDirNow(f.parentDir(oldpath))
 	go f.refreshDirNow(f.parentDir(newpath))
+}
+
+// copyFile copies src to dst, preferring server-side CopyObject and falling
+// back to download+upload for gateways that reject CopyObject (e.g. the
+// Hugging Face gateway fails minio-go's copy-source header signature).
+func (f *Fs) copyFile(src, dst string) error {
+	if err := f.client.Copy(context.Background(), src, dst); err == nil {
+		return nil
+	}
+	rc, _, gerr := f.client.GetFull(context.Background(), src)
+	if gerr != nil {
+		return gerr
+	}
+	perr := f.client.Put(context.Background(), dst, rc, 0, f.chunkSize)
+	rc.Close()
+	if perr != nil {
+		return perr
+	}
+	debugf("copyFile %q -> %q via download+upload", src, dst)
+	return nil
 }
 
 func (f *Fs) Utimens(path string, tmsp []fuse.Timespec) int {
