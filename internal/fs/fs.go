@@ -117,8 +117,12 @@ func (f *Fs) doRefreshMeta(path string) {
 	meta, err := f.client.Stat(context.Background(), path)
 	if err != nil {
 		if err == storage.ErrNotFound {
-			f.metas.Invalidate(path)
-			debugf("refreshMeta %q -> gone, cache cleared", path)
+			if m, ok, _ := f.metas.Get(path); ok && time.Since(m.ModTime) > 5*time.Second {
+				f.metas.Invalidate(path)
+				debugf("refreshMeta %q -> gone, cache cleared", path)
+			} else {
+				debugf("refreshMeta %q -> gone but recent create, kept visible", path)
+			}
 		}
 		return
 	}
