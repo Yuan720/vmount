@@ -661,16 +661,14 @@ func (f *Fs) Mkdir(path string, mode uint32) int {
 
 func (f *Fs) Rmdir(path string) int {
 	path = f.norm(path)
-	if entries, ok, _ := f.dirs.Get(path); ok && len(entries) > 0 {
+	if entries, ok, stale := f.dirs.Get(path); ok && !stale && len(entries) > 0 {
 		return -fuse.ENOTEMPTY
 	}
-	if f.usePH {
-		go func() {
-			if err := f.client.RemovePlaceholder(context.Background(), path); err != nil {
-				debugf("Rmdir %q RemovePlaceholder err: %v", path, err)
-			}
-		}()
-	}
+	go func() {
+		if err := f.client.RemovePlaceholder(context.Background(), path); err != nil {
+			debugf("Rmdir %q RemovePlaceholder err: %v", path, err)
+		}
+	}()
 	f.invalidatePath(path)
 	go f.refreshDirNow(f.parentDir(path))
 	return 0
