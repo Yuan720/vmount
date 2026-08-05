@@ -37,7 +37,7 @@ func Default() Config {
 		UserAgent:          "botocore/1.34.0",
 		UsePlaceholder:     true,
 		ExcludeSuffixes: []string{
-			".crdownload", ".part", ".partial", ".download", ".tmp", ".temp", ".aria2",
+			".crdownload", ".crswap", ".part", ".partial", ".download", ".tmp", ".temp", ".aria2",
 		},
 	}
 }
