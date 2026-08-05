@@ -83,21 +83,9 @@ func (f *Fs) refreshDirNow(path string) {
 }
 
 func (f *Fs) doRefreshDir(path string) {
-	oldEntries, hadOld, _ := f.dirs.Get(path)
 	entries, err := f.client.List(context.Background(), path)
 	if err != nil {
 		return
-	}
-	if hadOld {
-		inNew := make(map[string]bool, len(entries))
-		for _, e := range entries {
-			inNew[e.Name] = true
-		}
-		for _, oe := range oldEntries {
-			if !inNew[oe.Name] {
-				f.metas.Invalidate(joinPath(path, oe.Name))
-			}
-		}
 	}
 	f.dirs.Set(path, entries)
 	names := make([]string, 0, len(entries))
