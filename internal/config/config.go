@@ -30,7 +30,7 @@ func Default() Config {
 		Mount:              "Z:",
 		CacheDir:           "cache",
 		ReadCacheMB:        512,
-		ListTTLSeconds:     30,
+		ListTTLSeconds:     15,
 		MultipartThreshold: 100 * 1024 * 1024,
 		ChunkSize:          8 * 1024 * 1024,
 		Region:             "us-east-1",

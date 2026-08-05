@@ -377,9 +377,19 @@ func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
 
 func (f *Fs) Readdir(path string, fill func(name string, stat *fuse.Stat_t, off int64) bool, off int64, fh uint64) int {
 	path = f.norm(path)
-	entries, ok, _ := f.dirs.Get(path)
-	if !ok {
-		entries = nil
+	entries, ok, stale := f.dirs.Get(path)
+	if !ok || stale {
+		newEntries, err := f.client.List(context.Background(), path)
+		if err != nil {
+			if !ok {
+				return -fuse.EIO
+			}
+			debugf("Readdir %q refresh failed, using stale cache", path)
+		} else {
+			entries = newEntries
+			f.dirs.Set(path, entries)
+		}
+	} else {
 		go f.refreshDir(path)
 	}
 	names := make([]string, 0, len(entries)+2)
