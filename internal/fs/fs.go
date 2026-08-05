@@ -280,6 +280,13 @@ func (f *Fs) asyncUpload(key, path string) {
 		return
 	}
 	size := entry.Size()
+	if size == 0 {
+		f.spool.Close(key)
+		f.spool.Remove(key)
+		f.invalidatePath(path)
+		debugf("asyncUpload %q skipped (empty placeholder)", path)
+		return
+	}
 	err = f.client.Put(context.Background(), path, rs, size, f.chunkSize)
 	f.spool.Close(key)
 	if err != nil {
