@@ -642,6 +642,8 @@ func (f *Fs) Unlink(path string) int {
 	key := f.spoolKey(path)
 	f.handles.MarkDeleted(path)
 	f.spool.Remove(key)
+	f.metas.Invalidate(path)
+	f.dirs.Invalidate(f.parentDir(path))
 	go f.doUnlink(path)
 	return 0
 }
