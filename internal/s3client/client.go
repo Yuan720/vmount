@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -28,11 +29,26 @@ func (t *uaTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	if t.ua != "" {
 		r.Header.Set("User-Agent", t.ua)
 	}
+	// Some gateways (e.g. Hugging Face) reject the quoted, URL-encoded
+	// x-amz-copy-source header that minio-go produces (AWS accepts it).
+	fixCopySource(r)
 	resp, err := t.base.RoundTrip(r)
 	if err == nil && resp.Header.Get("Last-Modified") == "" {
 		resp.Header.Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
 	}
 	return resp, err
+}
+
+func fixCopySource(r *http.Request) {
+	src := r.Header.Get("x-amz-copy-source")
+	if src == "" {
+		return
+	}
+	src = strings.Trim(src, `"`)
+	if dec, err := url.PathUnescape(src); err == nil {
+		src = dec
+	}
+	r.Header.Set("x-amz-copy-source", src)
 }
 
 const negTTL = 30 * time.Second
