@@ -338,7 +338,7 @@ func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
 		// seconds so the browser can confirm creation, then treated as gone
 		// so a later download of the same name does not trigger the
 		// "already exists" prompt.
-		if meta.Size == 0 && !meta.IsDir && time.Since(meta.ModTime) > 2*time.Second {
+		if meta.Size == 0 && !meta.IsDir && time.Since(meta.ModTime) > 60*time.Second {
 			go f.refreshMeta(path)
 			debugf("Getattr %q -> placeholder expired", path)
 			return -fuse.ENOENT
@@ -562,12 +562,14 @@ func (f *Fs) Write(path string, buff []byte, off int64, fh uint64) int {
 		return -fuse.EIO
 	}
 	n, werr := entry.WriteAt(buff, off)
+	size := entry.Size()
 	f.spool.Close(key)
 	if werr != nil {
 		debugf("Write %q fh=%d off=%d len=%d WriteAt err: %v", h.path, fh, off, len(buff), werr)
 		return -fuse.EIO
 	}
 	h.spooled = true
+	f.metas.Set(h.path, storage.Meta{Size: size, ModTime: time.Now()})
 	return n
 }
 
