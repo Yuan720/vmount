@@ -32,7 +32,28 @@ type Fs struct {
 	uploadMx  sync.Map
 	refreshMx sync.Map
 	refreshAt sync.Map
+	active    sync.Map
 	cacheDir  string
+}
+
+func baseName(path string) string {
+	path = strings.Trim(path, "/")
+	idx := strings.LastIndex(path, "/")
+	if idx < 0 {
+		return path
+	}
+	return path[idx+1:]
+}
+
+func (f *Fs) activeAdd(dir, name string) {
+	m, _ := f.active.LoadOrStore(dir, &sync.Map{})
+	m.(*sync.Map).Store(name, struct{}{})
+}
+
+func (f *Fs) activeRemove(dir, name string) {
+	if m, ok := f.active.Load(dir); ok {
+		m.(*sync.Map).Delete(name)
+	}
 }
 
 func (f *Fs) uploadMuFor(path string) *sync.Mutex {
@@ -405,7 +426,7 @@ func (f *Fs) Open(path string, flags int) (int, uint64) {
 		if meta.IsDir {
 			return -fuse.EISDIR, ^uint64(0)
 		}
-		if flags&fuse.O_TRUNC == 0 && meta.Size > 0 {
+		if flags&fuse.O_TRUNC == 0 && meta.Size > 0 && !f.isExcluded(path) {
 			if rc := f.loadToSpool(path, meta.Size); rc != 0 {
 				return rc, ^uint64(0)
 			}
