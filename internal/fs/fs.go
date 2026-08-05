@@ -805,16 +805,16 @@ func (f *Fs) copyFile(src, dst string) error {
 	if err := f.client.Copy(context.Background(), src, dst); err == nil {
 		return nil
 	}
-	rc, _, gerr := f.client.GetFull(context.Background(), src)
+	rc, size, gerr := f.client.GetFull(context.Background(), src)
 	if gerr != nil {
 		return gerr
 	}
-	perr := f.client.Put(context.Background(), dst, rc, 0, f.chunkSize)
+	perr := f.client.Put(context.Background(), dst, rc, size, f.chunkSize)
 	rc.Close()
 	if perr != nil {
 		return perr
 	}
-	debugf("copyFile %q -> %q via download+upload", src, dst)
+	debugf("copyFile %q -> %q via download+upload size=%d", src, dst, size)
 	return nil
 }
 
