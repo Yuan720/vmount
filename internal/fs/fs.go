@@ -535,16 +535,19 @@ func (f *Fs) Read(path string, buff []byte, off int64, fh uint64) int {
 func (f *Fs) Write(path string, buff []byte, off int64, fh uint64) int {
 	h := f.handles.Get(fh)
 	if h == nil {
+		debugf("Write %q fh=%d off=%d len=%d -> EBADF", path, fh, off, len(buff))
 		return -fuse.EBADF
 	}
 	key := f.spoolKey(h.path)
 	entry, err := f.spool.Open(key)
 	if err != nil {
+		debugf("Write %q fh=%d off=%d len=%d spool open err: %v", h.path, fh, off, len(buff), err)
 		return -fuse.EIO
 	}
 	n, werr := entry.WriteAt(buff, off)
 	f.spool.Close(key)
 	if werr != nil {
+		debugf("Write %q fh=%d off=%d len=%d WriteAt err: %v", h.path, fh, off, len(buff), werr)
 		return -fuse.EIO
 	}
 	h.spooled = true
