@@ -44,11 +44,13 @@ func fixCopySource(r *http.Request) {
 	if src == "" {
 		return
 	}
+	debugf("copy-source before: %q", src)
 	src = strings.Trim(src, `"`)
 	if dec, err := url.PathUnescape(src); err == nil {
 		src = dec
 	}
 	r.Header.Set("x-amz-copy-source", src)
+	debugf("copy-source after: %q", src)
 }
 
 const negTTL = 30 * time.Second
