@@ -333,16 +333,25 @@ func (f *Fs) Getattr(path string, stat *fuse.Stat_t, fh uint64) int {
 		return 0
 	}
 	meta, ok, stale := f.metas.Get(path)
-	if !ok {
-		go f.refreshMeta(path)
-		debugf("Getattr %q -> optimistic ENOENT", path)
-		return -fuse.ENOENT
+	if ok {
+		// 0B placeholder (not yet synced to S3): visible for a couple of
+		// seconds so the browser can confirm creation, then treated as gone
+		// so a later download of the same name does not trigger the
+		// "already exists" prompt.
+		if meta.Size == 0 && !meta.IsDir && time.Since(meta.ModTime) > 2*time.Second {
+			go f.refreshMeta(path)
+			debugf("Getattr %q -> placeholder expired", path)
+			return -fuse.ENOENT
+		}
+		if stale {
+			go f.refreshMeta(path)
+		}
+		f.fillStat(stat, &meta)
+		return 0
 	}
-	if stale {
-		go f.refreshMeta(path)
-	}
-	f.fillStat(stat, &meta)
-	return 0
+	go f.refreshMeta(path)
+	debugf("Getattr %q -> optimistic ENOENT", path)
+	return -fuse.ENOENT
 }
 
 func (f *Fs) Readdir(path string, fill func(name string, stat *fuse.Stat_t, off int64) bool, off int64, fh uint64) int {
