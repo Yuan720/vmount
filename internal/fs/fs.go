@@ -442,41 +442,11 @@ func (f *Fs) Create(path string, flags int, mode uint32) (int, uint64) {
 		return -fuse.EIO, ^uint64(0)
 	}
 	f.metas.Set(path, storage.Meta{Size: 0, ModTime: time.Now()})
-	if !f.isExcluded(path) {
-		go f.createEmpty(path)
-	}
 	f.dirs.Invalidate(f.parentDir(path))
 	fh := f.handles.Add(&handle{path: path, write: true, spooled: true})
 	debugf("Create %q -> fh=%d", path, fh)
 	go f.refreshDirNow(f.parentDir(path))
 	return 0, fh
-}
-
-// createEmpty creates a 0-byte object in the background so the file becomes
-// visible on the remote side shortly after creation. It shares the per-path
-// upload lock with asyncUpload so the later content upload always wins. If
-// the file was renamed away while creating, the empty object is removed.
-func (f *Fs) createEmpty(path string) {
-	f.uploadWG.Add(1)
-	defer f.uploadWG.Done()
-	key := f.spoolKey(path)
-	if !f.spool.Exists(key) {
-		return
-	}
-	mu := f.uploadMuFor(path)
-	mu.Lock()
-	defer mu.Unlock()
-	if err := f.client.Put(context.Background(), path, strings.NewReader(""), 0, f.chunkSize); err != nil {
-		debugf("createEmpty %q err: %v", path, err)
-		return
-	}
-	if !f.spool.Exists(key) {
-		f.client.Remove(context.Background(), path)
-		debugf("createEmpty %q cleaned up (renamed away)", path)
-		return
-	}
-	debugf("createEmpty %q done", path)
-	go f.refreshDirNow(f.parentDir(path))
 }
 
 func (f *Fs) Read(path string, buff []byte, off int64, fh uint64) int {
